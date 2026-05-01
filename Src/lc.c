@@ -15,7 +15,7 @@
 #include "interp.h"
 #include <string.h>
 #include <stdio.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 struct typeRecord* objectType;
 struct typeRecord* booleanType;

@@ -13,7 +13,7 @@
 
 #include "lc.h"
 #include "interp.h"
-#include <malloc.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 

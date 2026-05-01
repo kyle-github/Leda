@@ -13,7 +13,7 @@
 
 #include "lc.h"
 #include <stdio.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 struct typeRecord* newConstantType(struct typeRecord* b)
 {
