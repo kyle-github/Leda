@@ -29,16 +29,21 @@
 // -----------------------------------------------------------------------------
 
 #ifndef memory_h
-#define memory_h
+#    define memory_h
 
 // -----------------------------------------------------------------------------
 ///  ledaValue
 // -----------------------------------------------------------------------------
 
-struct ledaValue
-{
+
+struct ledaValue {
     int size;
-    struct ledaValue* data[0];
+    union {
+        int ival;
+        double fval;
+        char *sval;
+        struct ledaValue *oval;
+    } data[0];
 };
 
 // memoryBase holds the pointer to the current space,
@@ -47,19 +52,19 @@ struct ledaValue
 // If the result is less than memoryBase, then garbage collection
 // must take place
 
-extern struct ledaValue* memoryPointer;
-extern struct ledaValue* memoryBase;
+extern struct ledaValue *memoryPointer;
+extern struct ledaValue *memoryBase;
 
 // -----------------------------------------------------------------------------
 ///  Roots for the memory space
 // -----------------------------------------------------------------------------
 //- These are traced down during memory management
 
-# define ROOTSTACKLIMIT 250
-extern struct ledaValue* rootStack[];
+#    define ROOTSTACKLIMIT 250
+extern struct ledaValue *rootStack[];
 extern int rootTop;
-extern struct ledaValue* globalContext;
-extern struct ledaValue* currentContext;
+extern struct ledaValue *globalContext;
+extern struct ledaValue *currentContext;
 
 
 // -----------------------------------------------------------------------------
@@ -67,19 +72,19 @@ extern struct ledaValue* currentContext;
 // -----------------------------------------------------------------------------
 
 void gcinit(int, int);
-struct ledaValue* gcollect(int);
-struct ledaValue* staticAllocate(int);
+struct ledaValue *gcollect(int);
+struct ledaValue *staticAllocate(int);
 
-# define gcalloc(sz) (((memoryPointer-=((sz)+2))<memoryBase)?                  \
-    gcollect(sz):(memoryPointer->size=(sz)<<2,memoryPointer))
+#    define gcalloc(sz) \
+        (((memoryPointer -= ((sz) + 2)) < memoryBase) ? gcollect(sz) : (memoryPointer->size = (sz) << 2, memoryPointer))
 
-# ifndef gcalloc
-    extern struct ledaValue* gcalloc(int);
-# endif
+#    ifndef gcalloc
+extern struct ledaValue *gcalloc(int);
+#    endif
 
-int yyerror(char* s);
+int yyerror(char *s);
 
 
 // -----------------------------------------------------------------------------
-#endif // memory_h
+#endif  // memory_h
 // -----------------------------------------------------------------------------
