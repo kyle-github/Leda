@@ -29,4 +29,8 @@ vgcore*
 
 updateDocs
 
+
+build/
+
 # end-of-file
+
