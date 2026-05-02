@@ -18,9 +18,17 @@ set(BISON_GEN_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/Src/gram.y.c")
 set(BISON_GEN_HEADER "${CMAKE_CURRENT_BINARY_DIR}/Src/gram.y.h")
 set(FLEX_GEN_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/Src/lexer.l.c")
 
+set(BYTECODE_BISON_GEN_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/src_bytecode/gram.y.c")
+set(BYTECODE_BISON_GEN_HEADER "${CMAKE_CURRENT_BINARY_DIR}/src_bytecode/gram.y.h")
+set(BYTECODE_FLEX_GEN_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/src_bytecode/lexer.l.c")
+
 bison_target(Parser Src/gram.y ${BISON_GEN_SOURCE} DEFINES_FILE ${BISON_GEN_HEADER})
 flex_target(Scanner Src/lexer.l ${FLEX_GEN_SOURCE})
 add_flex_bison_dependency(Scanner Parser)
+
+bison_target(BytecodeParser src_bytecode/gram.y ${BYTECODE_BISON_GEN_SOURCE} DEFINES_FILE ${BYTECODE_BISON_GEN_HEADER})
+flex_target(BytecodeScanner src_bytecode/lexer.l ${BYTECODE_FLEX_GEN_SOURCE})
+add_flex_bison_dependency(BytecodeScanner BytecodeParser)
 
 # Add the main compiler executable `lc`
 add_executable(lc
@@ -38,6 +46,44 @@ target_include_directories(lc PRIVATE
     Src
     ${CMAKE_CURRENT_BINARY_DIR}/Src
 )
+
+add_library(leda_bytecode_core
+    src_bytecode/bytecode.c
+    src_bytecode/bc_emit.c
+    src_bytecode/vm.c
+)
+
+add_library(leda_bytecode_frontend
+    src_bytecode/lc_frontend.c
+    src_bytecode/types_frontend.c
+    src_bytecode/gen_frontend.c
+    src_bytecode/frontend_runtime_support.c
+    ${BISON_BytecodeParser_OUTPUTS}
+    ${FLEX_BytecodeScanner_OUTPUTS}
+)
+
+target_include_directories(leda_bytecode_core PRIVATE
+    src_bytecode
+)
+
+target_include_directories(leda_bytecode_frontend PRIVATE
+    src_bytecode
+    ${CMAKE_CURRENT_BINARY_DIR}/src_bytecode
+)
+
+add_executable(ledac
+    src_bytecode/ledac.c
+)
+
+target_link_libraries(ledac PRIVATE leda_bytecode_core leda_bytecode_frontend)
+target_include_directories(ledac PRIVATE src_bytecode)
+
+add_executable(ledavm
+    src_bytecode/ledavm.c
+)
+
+target_link_libraries(ledavm PRIVATE leda_bytecode_core)
+target_include_directories(ledavm PRIVATE src_bytecode)
 
 # Documentation target
 find_program(EMACS_EXECUTABLE emacs)

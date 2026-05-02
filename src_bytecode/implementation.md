@@ -33,7 +33,9 @@
 
 This document proposes how to change the Leda implementation from a direct AST-walking interpreter into a bytecode compiler plus a simple switch-based virtual machine.
 
-The goal is not to redesign the whole language implementation at once. The goal is to preserve the existing front end, type system, runtime object model, and garbage collector as much as possible while replacing the execution backend.
+The goal is not to redesign the whole language implementation at once. The goal is to preserve the existing front-end semantics, type system behavior, runtime object model, and garbage collector behavior as much as possible while replacing the execution backend.
+
+The bytecode implementation should do that by copying the needed frontend and runtime support code into `src_bytecode/` and evolving it there. It should not link the new tools against the legacy `Src/` implementation files as a permanent architecture.
 
 The resulting toolchain should consist of:
 
@@ -59,8 +61,8 @@ The most important existing facts are:
 
 That means the lowest-risk migration is:
 
-- keep the lexer, parser, symbol tables, and type checker
-- keep `struct ledaValue` and the GC model
+- copy the lexer, parser, symbol-table support, type checker support, and AST construction support into `src_bytecode/`
+- keep `struct ledaValue` and the GC model semantically compatible while moving the needed code under `src_bytecode/`
 - add a compiler backend from AST to bytecode
 - add a VM backend for bytecode execution
 - remove the AST interpreter only after bytecode execution reaches semantic parity
@@ -119,7 +121,9 @@ This preserves the current implementation model where `cfunction` targets come f
 
 ### Preserve runtime object representation initially
 
-The first bytecode implementation should continue using the current `struct ledaValue` runtime representation from `Src/memory.h` and the current collector in `Src/memory.c`.
+The first bytecode implementation should continue using the current `struct ledaValue` runtime representation and the current collector design.
+
+That does not require linking `ledac` or `ledavm` against the legacy interpreter objects. The needed runtime code should be copied into `src_bytecode/` and kept layout-compatible while the bytecode backend comes up.
 
 This avoids coupling the bytecode transition with a second risky redesign in memory management.
 
@@ -247,6 +251,13 @@ The expected layout for the bytecode implementation can be:
 ```text
 src_bytecode/
   implementation.md
+    lexer.l
+    gram.y
+    frontend.h
+    ast.h
+    lc_frontend.c
+    types_frontend.c
+    gen_frontend.c
   bytecode.h
   bytecode.c
   bc_emit.h
@@ -263,6 +274,10 @@ src_bytecode/
 
 Suggested responsibilities:
 
+- `lexer.l`, `gram.y`: copied frontend grammar and scanner for the bytecode toolchain
+- `frontend.h`: copied shared frontend structures needed by the bytecode compiler
+- `ast.h`: copied AST layout definitions consumed by the bytecode emitter
+- `lc_frontend.c`, `types_frontend.c`, `gen_frontend.c`: copied semantic-analysis and AST-construction support to be evolved locally under `src_bytecode`
 - `bytecode.h/.c`: instruction encoding, module structures, helpers
 - `bc_emit.h/.c`: AST to bytecode compiler
 - `bc_loader.h/.c`: `.lbc` loader and serializer
@@ -409,25 +424,140 @@ The `.lbc` format should be portable and semantic.
 
 The header should contain:
 
-- magic number, for example `LBC0`
-- bytecode format version
-- flags
-- constant pool count
-- function count
+
+#### Concrete frame definition
+
+The first VM implementation should make that layout explicit with a native frame structure such as:
+
+```c
+struct bc_frame {
+        struct bc_function *function;
+        uint8_t *ip;
+        struct bc_env *env;
+        uint32_t caller_frame_index;
+        uint32_t stack_base;
+        uint32_t arg_base;
+        uint32_t local_base;
+        uint16_t arg_count;
+        uint16_t local_count;
+};
+```
+
+The important points are:
+
+- `function` identifies the active bytecode body
+- `ip` is the current instruction pointer within that body
+- `env` points to the heap environment for captured variables, or is null when the frame captures nothing
+- `caller_frame_index` links back to the caller without storing a raw C stack pointer
+- `stack_base` marks the start of this frame's operand-stack slice
+- `arg_base` marks the first argument slot for frame-pointer-style argument access
+- `local_base` marks the first temporary or local slot for frame-pointer-style local access
+- `arg_count` and `local_count` are bounds for slot validation and tracing
+
+This is intentionally frame-pointer-like even if the VM never materializes a separate frame-pointer register. The effective frame base is the tuple:
+
+- operand stack array
+- `arg_base`
+- `local_base`
+- current `bc_frame`
+
+So `OP_LOAD_ARG 0` means "load from the current frame's argument area at `arg_base + 0`", and `OP_LOAD_LOCAL 0` means "load from the current frame's local area at `local_base + 0`".
 - entry function index
 
-All numeric fields in the header should be encoded canonically, not using native C integer layout.
 
-Recommended rule:
-
-- header counts and indexes use ULEB128
-- any fixed-width header fields use little-endian byte order
 
 The header should also carry format-capability bits that make portability rules explicit, such as:
+
+### Concrete slot-access definitions
+
+The slot-oriented bytecodes should be defined as frame-relative or environment-relative operations, not as symbolic lookups.
+
+#### Locals and temporaries
+
+- `OP_LOAD_LOCAL slot`
+    - read `frame.locals[slot]`
+    - equivalently, read operand-stack storage at `frame.local_base + slot`
+- `OP_STORE_LOCAL slot`
+    - write the top-of-stack value to `frame.locals[slot]`
+    - leave the stored value on the operand stack unless a later `OP_POP` removes it
+
+These opcodes cover ordinary locals and compiler-created temporaries. The compiler can place both in the same indexed local area.
+
+#### Arguments
+
+- `OP_LOAD_ARG slot`
+    - read `frame.args[slot]`
+    - equivalently, read operand-stack storage at `frame.arg_base + slot`
+- `OP_STORE_ARG slot`
+    - write the top-of-stack value to `frame.args[slot]`
+
+Even if arguments are immutable by language convention in some cases, it is still useful to define `OP_STORE_ARG` because by-reference or lowered helper code may need a uniform writable slot model.
+
+#### Captures
+
+- `OP_LOAD_CAPTURE slot`
+    - read `frame.env->slots[slot]`
+- `OP_STORE_CAPTURE slot`
+    - write the top-of-stack value to `frame.env->slots[slot]`
+
+These are never frame-stack accesses. They are explicit heap-environment accesses.
+
+#### Why this split matters
+
+This separation keeps the common case fast:
+
+- locals and temporaries use frame-relative indexed access
+- arguments use frame-relative indexed access
+- only captured variables pay the extra indirection through `env`
+
+That is the bytecode equivalent of frame-pointer-based addressing with explicit closure lifting.
 
 - real encoding kind
 - debug info present or absent
 - reserved feature flags for future format revisions
+
+#### Concrete environment definition
+
+The first explicit environment structure should be small and regular. A good starting point is:
+
+```c
+struct bc_env {
+        struct bc_env *parent;
+        uint16_t slot_count;
+        uint16_t flags;
+        struct ledaValue *slots[0];
+};
+```
+
+Where:
+
+- `parent` links to the next outer lexical environment when nested closures capture outer scopes
+- `slot_count` gives the number of capture slots stored in this environment
+- `flags` can distinguish immediate environments, boxed-cell layouts, or other later variants
+- `slots[i]` stores the captured values or cell references for the closure
+
+If boxed cells are used, each entry in `slots` can itself point to a heap cell object rather than directly to the value. That gives shared mutation semantics for captured variables.
+
+For example:
+
+```c
+struct bc_cell {
+        struct ledaValue *value;
+};
+```
+
+Then the model becomes:
+
+- uncaptured local: stored directly in the current frame local area
+- captured immutable value: may be copied directly into `bc_env.slots`
+- captured mutable local: represented by a `bc_cell *` reachable from `bc_env.slots`
+
+The closure object itself should then contain:
+
+- callee function index or pointer
+- pointer to the `bc_env`
+
+It should not contain a pointer to the whole stack activation record.
 
 ### Constant pool
 
@@ -1165,13 +1295,15 @@ The first approach is cleaner for a VM.
 
 Add a root-enumeration hook used by `gcollect` so the VM can present all live frame and stack references. This avoids forcing the VM to allocate artificial context objects for every internal VM structure.
 
+If collector support is reused from the old runtime, copy that collector code into `src_bytecode/` and adapt it there. Do not make the bytecode runtime depend on linking the old interpreter executable support objects.
+
 ## Compiler Executable ledac
 
 `ledac` should:
 
 1. parse command-line arguments
 2. read one source file
-3. run the existing front end
+3. run the copied bytecode frontend from `src_bytecode/`
 4. build bytecode module structures
 5. serialize `.lbc`
 
@@ -1223,7 +1355,7 @@ Instead:
 
 - keep the current interpreter as a reference implementation
 - add bytecode compilation and VM execution beside it
-- use the same front end for both
+- keep the copied bytecode frontend behavior-matched with the legacy frontend while avoiding direct linkage to `Src/`
 
 ### Compare behaviors on the same inputs
 
@@ -1235,6 +1367,8 @@ For a transition period, it should be possible to:
 4. compare results and test outputs
 
 This will reduce semantic drift and make debugging much easier.
+
+In practice that comparison can still use the legacy interpreter as the oracle, but the bytecode compiler path should build from the copied frontend sources under `src_bytecode/`.
 
 ### Delay parser changes
 

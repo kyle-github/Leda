@@ -1,0 +1,214 @@
+/// Copyright 1993-2015 Timothy A. Budd
+// -----------------------------------------------------------------------------
+//  This file is part of
+/// ---     Leda: Multiparadigm Programming Language
+// -----------------------------------------------------------------------------
+//
+//  Leda is free software: you can redistribute it and/or modify it under the
+//  terms of the MIT license, see file "COPYING" included in this distribution.
+//
+// -----------------------------------------------------------------------------
+/// Title: Structures used in the lc leda compiler
+// -----------------------------------------------------------------------------
+
+#ifndef LEDA_BYTECODE_LC_FRONTEND_H
+#define LEDA_BYTECODE_LC_FRONTEND_H
+
+struct ledaValue;
+
+// -----------------------------------------------------------------------------
+///  List
+// -----------------------------------------------------------------------------
+
+struct list {
+    char *value;
+    struct list *next;
+};
+
+struct list *newList(char *, struct list *);
+struct list *reverse(struct list *);
+
+
+// -----------------------------------------------------------------------------
+///  Symbol Tables
+// -----------------------------------------------------------------------------
+
+enum forms { byValue, byName, byReference };
+
+enum symbolTypes { varSymbol, typeSymbol, classDefSymbol, functionSymbol, argumentSymbol, constSymbol };
+
+struct symbolRecord {
+    char *name;
+    enum symbolTypes styp;
+    union {
+        struct {
+            int location;
+            struct typeRecord *typ;
+        } v;
+
+        struct {
+            struct typeRecord *typ;
+        } t;
+
+        struct {
+            int location;
+            struct typeRecord *typ;
+        } c;
+
+        struct {
+            int location;
+            int inherited;
+            struct typeRecord *typ;
+            struct statementRecord *code;
+        } f;
+
+        struct {
+            int location;
+            struct typeRecord *typ;
+            enum forms form;
+        } a;
+
+        struct {
+            int location;
+            struct expressionRecord *val;
+            struct typeRecord *typ;
+            int lineNumber;
+        } s;
+    } u;
+};
+
+enum tableTypes { globals, functionTable, classTable };
+
+struct symbolTableRecord {
+    enum tableTypes ttype;
+    struct symbolTableRecord *surroundingContext;
+    struct typeRecord *definingType;
+    struct list *firstSymbol;
+    int size;
+
+    union {
+        struct {
+            struct symbolRecord *theFunctionSymbol;
+            int argumentLocation;
+        } f;
+
+        struct {
+            struct list *methodTable;
+            int methodTableSize;
+        } c;
+    } u;
+};
+
+struct symbolTableRecord *newSymbolTable(enum tableTypes, struct symbolTableRecord *);
+struct symbolRecord *newSymbolRecord(char *, enum symbolTypes);
+struct symbolRecord *addVariable(struct symbolTableRecord *, char *, struct typeRecord *);
+void addNewSymbol(struct symbolTableRecord *, struct symbolRecord *);
+struct symbolRecord *lookupSymbol(struct symbolTableRecord *, char *);
+struct symbolTableRecord *addFunctionSymbol(struct symbolTableRecord *syms, char *name, struct list *ta);
+struct symbolRecord *argumentNumber(struct typeRecord *t, int n);
+
+
+// -----------------------------------------------------------------------------
+/// Types
+// -----------------------------------------------------------------------------
+
+struct typeRecord *newFunctionType(struct list *, struct typeRecord *);
+
+enum typeForms { functionType, classType, qualifiedType, unresolvedType, resolvedType, classDefType, constantType };
+
+struct typeRecord {
+    enum typeForms ttyp;
+    union {
+        struct {
+            struct list *argumentTypes;
+            struct typeRecord *returnType;
+        } f;
+
+        struct {
+            struct typeRecord *parent;
+            struct symbolTableRecord *symbols;
+            struct ledaValue *staticTable;
+        } c;
+
+        struct {
+            struct list *qualifiers;
+            struct typeRecord *baseType;
+        } q;
+
+        struct {
+            struct typeRecord *baseType;
+        } u;
+
+        struct {
+            struct list *patterns;
+            struct list *replacements;
+            struct typeRecord *baseType;
+        } r;
+    } u;
+};
+
+struct typeRecord *newTypeRecord(enum typeForms);
+struct typeRecord *newConstantType(struct typeRecord *);
+void addFunctionArguments(struct symbolTableRecord *, struct list *, struct typeRecord *);
+struct list *enterFunctionArguments(struct symbolTableRecord *, struct list *);
+struct symbolRecord *newClassSymbol(struct symbolTableRecord *, struct symbolTableRecord *, char *);
+struct typeRecord *newQualifiedType(struct symbolTableRecord *syms, struct list *qualifiers, struct typeRecord *t);
+struct typeRecord *fixResolvedType(struct typeRecord *, struct typeRecord *);
+void fillInClass(struct typeRecord *, struct list *, struct typeRecord *);
+struct typeRecord *checkFunction(struct typeRecord *t);
+struct list *newTypelist(struct typeRecord *t, enum forms stform, struct list *old);
+
+extern struct typeRecord *objectType;
+extern struct typeRecord *booleanType;
+extern struct typeRecord *integerType;
+extern struct typeRecord *realType;
+extern struct typeRecord *stringType;
+extern struct typeRecord *trueType;
+extern struct typeRecord *falseType;
+extern struct typeRecord *relationType;
+extern struct typeRecord *undefinedType;
+extern struct typeRecord *ClassType;
+
+
+// -----------------------------------------------------------------------------
+///  Arguments
+// -----------------------------------------------------------------------------
+
+struct argumentRecord {
+    char *name;
+    enum forms stform;
+    struct typeRecord *theType;
+};
+
+struct argumentRecord *newArgument(char *, struct typeRecord *, enum forms);
+struct list *buildArgumentList(struct list *, enum forms, struct typeRecord *, struct list *);
+
+
+// -----------------------------------------------------------------------------
+///  Function declarations
+// -----------------------------------------------------------------------------
+
+extern char *fileName;
+extern int linenumber;
+extern char *yytext;
+
+int yyerror(char *);
+void yyserror(char *, char *);
+void openInputFile(char *name);
+
+struct symbolTableRecord *initialCreation(void);
+
+struct typeRecord *checkType(struct symbolRecord *);
+struct typeRecord *checkClass(struct typeRecord *);
+struct typeRecord *checkQualifications(struct typeRecord *, struct list *);
+struct expressionRecord *checkExpression(struct symbolRecord *);
+
+char *newString(char *);
+
+void addConstant(struct symbolTableRecord *syms, char *name, struct expressionRecord *value);
+void addTypeDeclaration(struct symbolTableRecord *syms, char *name, struct typeRecord *typ);
+void fillInParent(struct typeRecord *theClass, struct typeRecord *theParent, struct list *typeArgs);
+int typeConformable(struct typeRecord *a, struct typeRecord *b);
+int length(struct list *p);
+
+#endif
