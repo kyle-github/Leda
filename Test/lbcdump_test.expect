@@ -1,0 +1,4 @@
+entry_function=0 [__top__]
+Function[1] add1
+primitive[5]=Leda_integer_plus
+CALL               1, 1, depth=0 ; function[1]=add1

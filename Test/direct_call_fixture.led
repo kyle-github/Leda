@@ -1,0 +1,10 @@
+function add1(x : integer)->integer;
+begin
+    return cfunction Leda_integer_plus(x, 1)->integer;
+end;
+
+var
+    y : integer;
+begin
+    y := add1(2);
+end;

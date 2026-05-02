@@ -116,7 +116,7 @@ char* newString(char * c)
         yyerror("too many strings");
     }
 
-    #ifdef DEBUG
+    #ifdef LEDA_FRONTEND_TRACE_LEXER
         printf("created new string %s\n", c);
     #endif
 
@@ -189,7 +189,7 @@ static void skipComment()
     }
 }
 
-#ifdef DEBUG
+#ifdef LEDA_FRONTEND_TRACE_LEXER
     #define lexReturn(x) printf("token %s:%s\n", yytext, #x); return(x)
 #else
     #define lexReturn(x) return(x)

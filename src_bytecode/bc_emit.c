@@ -496,6 +496,22 @@ static int bc_emit_closure_literal(struct bc_compile_context *context, struct ex
     return 1;
 }
 
+static int bc_match_direct_call_target(struct bc_compile_context *context, struct expressionRecord *callee_expression,
+                                       size_t *function_index, uint64_t *context_depth, char *error_buffer,
+                                       size_t error_buffer_size) {
+    if(callee_expression == NULL || callee_expression->operator!= makeClosure || callee_expression->u.l.code == NULL) {
+        return 0;
+    }
+
+    if(!bc_ensure_function_compiled(context, callee_expression, function_index, error_buffer, error_buffer_size)) { return -1; }
+    if(!bc_resolve_context_depth(callee_expression->u.l.context, context_depth)) {
+        bc_set_error(error_buffer, error_buffer_size, "unsupported direct-call closure context shape");
+        return -1;
+    }
+
+    return 1;
+}
+
 static int bc_compile_assignment_target(struct expressionRecord *target, struct bc_function *function, char *error_buffer,
                                         size_t error_buffer_size) {
     enum instructions target_operator;
@@ -653,16 +669,35 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
             return bc_emit_closure_literal(context, expression, function, error_buffer, error_buffer_size);
 
         case doFunctionCall: {
+            size_t direct_function_index = 0;
+            uint64_t direct_context_depth = 0;
             uint64_t argument_count = 0;
             struct list *arg;
+            int direct_call_status = bc_match_direct_call_target(context, expression->u.f.fun, &direct_function_index,
+                                                                 &direct_context_depth, error_buffer, error_buffer_size);
 
-            if(!bc_compile_expression(context, expression->u.f.fun, function, error_buffer, error_buffer_size)) { return 0; }
+            if(direct_call_status < 0) { return 0; }
+
+            if(direct_call_status == 0) {
+                if(!bc_compile_expression(context, expression->u.f.fun, function, error_buffer, error_buffer_size)) { return 0; }
+            }
+
             for(arg = expression->u.f.args; arg != NULL; arg = arg->next) {
                 if(!bc_compile_expression(context, (struct expressionRecord *)arg->value, function, error_buffer,
                                           error_buffer_size)) {
                     return 0;
                 }
                 argument_count++;
+            }
+
+            if(direct_call_status > 0) {
+                if(!bc_emit_opcode(function, BC_OP_CALL) || !bc_emit_u64le(function, (uint64_t)direct_function_index)
+                   || !bc_emit_u64le(function, argument_count) || !bc_emit_u64le(function, direct_context_depth)) {
+                    bc_set_error(error_buffer, error_buffer_size, "unable to emit direct call");
+                    return 0;
+                }
+                if(function->max_stack < argument_count + 1u) { function->max_stack = (uint32_t)(argument_count + 1u); }
+                return 1;
             }
 
             if(!bc_emit_opcode(function, BC_OP_CALL_CLOSURE) || !bc_emit_u64le(function, argument_count)) {
@@ -791,6 +826,6 @@ int bc_compile_top_level(struct symbolTableRecord *symbols, struct statementReco
 
     bc_set_error(
         error_buffer, error_buffer_size,
-        "compiled bytecode slice: top-level slots, function locals, captured outer slots, by-value arguments, closure values, indirect calls, integer primitives, and local assignments");
+        "compiled bytecode slice: top-level slots, function locals, captured outer slots, by-value arguments, closure values, direct and indirect calls, integer primitives, and local assignments");
     return 1;
 }

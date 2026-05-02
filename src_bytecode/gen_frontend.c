@@ -251,6 +251,7 @@ static struct expressionRecord *genFromSymbol(struct expressionRecord *base, str
             e = newExpression(makeClosure);
             e->u.l.context = base;
             e->u.l.code = s->u.f.code;
+            e->u.l.functionName = s->name;
             e->resultType = s->u.f.typ;
             break;
 

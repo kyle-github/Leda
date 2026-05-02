@@ -1,0 +1,5 @@
+Function[1] outer
+Function[2] inner
+CALL               1, 1, depth=0 ; function[1]=outer
+CALL               2, 1, depth=0 ; function[2]=inner
+LOAD_CAPTURE_ARG   depth=1, slot=0

@@ -681,8 +681,11 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
             case BC_OP_CALL: {
                 uint64_t function_index;
                 uint64_t argument_count;
+                uint64_t context_depth;
+                size_t parent_env_index;
                 size_t caller_frame_index = vm->current_frame_index;
-                if(!vm_read_u64le(vm, &function_index) || !vm_read_u64le(vm, &argument_count)) {
+                if(!vm_read_u64le(vm, &function_index) || !vm_read_u64le(vm, &argument_count)
+                   || !vm_read_u64le(vm, &context_depth)) {
                     vm_set_error(error_buffer, error_buffer_size, "malformed CALL operand");
                     return 0;
                 }
@@ -690,8 +693,11 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                     vm_set_error(error_buffer, error_buffer_size, "invalid function index in CALL");
                     return 0;
                 }
+                if(!vm_resolve_closure_env_index(vm, context_depth, &parent_env_index, error_buffer, error_buffer_size)) {
+                    return 0;
+                }
                 if(!vm_enter_frame(vm, &vm->module->functions[function_index], (size_t)argument_count, caller_frame_index,
-                                   SIZE_MAX, error_buffer, error_buffer_size)) {
+                                   parent_env_index, error_buffer, error_buffer_size)) {
                     return 0;
                 }
                 break;

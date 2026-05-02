@@ -1,0 +1,14 @@
+function outer(n : integer)->integer;
+    function inner(x : integer)->integer;
+    begin
+        return cfunction Leda_integer_plus(x, n)->integer;
+    end;
+begin
+    return inner(2);
+end;
+
+var
+    y : integer;
+begin
+    y := outer(5);
+end;
