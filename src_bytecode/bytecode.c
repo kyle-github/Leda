@@ -48,29 +48,11 @@ static int bc_buffer_reserve(struct bc_buffer *buffer, size_t needed) {
 
 static int bc_write_u8(FILE *output, uint8_t value) { return fwrite(&value, sizeof(value), 1, output) == 1; }
 
-static int bc_write_uleb128(FILE *output, uint64_t value) {
-    do {
-        uint8_t byte = (uint8_t)(value & 0x7fu);
-        value >>= 7;
-        if(value != 0) { byte |= 0x80u; }
-        if(!bc_write_u8(output, byte)) { return 0; }
-    } while(value != 0);
+static int bc_write_u64le(FILE *output, uint64_t value) {
+    size_t i;
 
-    return 1;
-}
-
-static int bc_write_sleb128(FILE *output, int64_t value) {
-    int more = 1;
-    while(more) {
-        uint8_t byte = (uint8_t)(value & 0x7f);
-        int sign = (byte & 0x40) != 0;
-        value >>= 7;
-        if((value == 0 && !sign) || (value == -1 && sign)) {
-            more = 0;
-        } else {
-            byte |= 0x80u;
-        }
-        if(!bc_write_u8(output, byte)) { return 0; }
+    for(i = 0; i < 8; ++i) {
+        if(!bc_write_u8(output, (uint8_t)((value >> (i * 8)) & 0xffu))) { return 0; }
     }
 
     return 1;
@@ -78,38 +60,30 @@ static int bc_write_sleb128(FILE *output, int64_t value) {
 
 static int bc_read_u8(FILE *input, uint8_t *value) { return fread(value, sizeof(*value), 1, input) == 1; }
 
-static int bc_read_uleb128(FILE *input, uint64_t *value) {
-    uint64_t result = 0;
-    int shift = 0;
-    for(;;) {
-        uint8_t byte;
-        if(!bc_read_u8(input, &byte)) { return 0; }
-        result |= ((uint64_t)(byte & 0x7fu)) << shift;
-        if((byte & 0x80u) == 0) {
-            *value = result;
-            return 1;
-        }
-        shift += 7;
-        if(shift > 63) { return 0; }
-    }
+static int bc_write_i64le(FILE *output, int64_t value) {
+    uint64_t raw = 0;
+    memcpy(&raw, &value, sizeof(raw));
+    return bc_write_u64le(output, raw);
 }
 
-static int bc_read_sleb128(FILE *input, int64_t *value) {
-    int shift = 0;
-    uint8_t byte = 0;
-    int64_t result = 0;
+static int bc_read_u64le(FILE *input, uint64_t *value) {
+    size_t i;
+    uint64_t result = 0;
 
-    for(;;) {
+    for(i = 0; i < 8; ++i) {
+        uint8_t byte;
         if(!bc_read_u8(input, &byte)) { return 0; }
-        result |= ((int64_t)(byte & 0x7f)) << shift;
-        shift += 7;
-        if((byte & 0x80u) == 0) { break; }
-        if(shift > 63) { return 0; }
+        result |= ((uint64_t)byte) << (i * 8);
     }
 
-    if((shift < 64) && (byte & 0x40u)) { result |= -((int64_t)1 << shift); }
-
     *value = result;
+    return 1;
+}
+
+static int bc_read_i64le(FILE *input, int64_t *value) {
+    uint64_t raw = 0;
+    if(!bc_read_u64le(input, &raw)) { return 0; }
+    memcpy(value, &raw, sizeof(*value));
     return 1;
 }
 
@@ -221,39 +195,28 @@ int bc_emit_u8(struct bc_function *function, uint8_t value) {
 
 int bc_emit_opcode(struct bc_function *function, enum bc_opcode opcode) { return bc_emit_u8(function, (uint8_t)opcode); }
 
-int bc_emit_uleb128(struct bc_function *function, uint64_t value) {
-    do {
-        uint8_t byte = (uint8_t)(value & 0x7fu);
-        value >>= 7;
-        if(value != 0) { byte |= 0x80u; }
-        if(!bc_emit_u8(function, byte)) { return 0; }
-    } while(value != 0);
+int bc_emit_u64le(struct bc_function *function, uint64_t value) {
+    size_t i;
 
-    return 1;
-}
-
-int bc_emit_sleb128(struct bc_function *function, int64_t value) {
-    int more = 1;
-    while(more) {
-        uint8_t byte = (uint8_t)(value & 0x7f);
-        int sign = (byte & 0x40) != 0;
-        value >>= 7;
-        if((value == 0 && !sign) || (value == -1 && sign)) {
-            more = 0;
-        } else {
-            byte |= 0x80u;
-        }
-        if(!bc_emit_u8(function, byte)) { return 0; }
+    for(i = 0; i < 8; ++i) {
+        if(!bc_emit_u8(function, (uint8_t)((value >> (i * 8)) & 0xffu))) { return 0; }
     }
 
     return 1;
 }
 
+int bc_emit_i64le(struct bc_function *function, int64_t value) {
+    uint64_t raw = 0;
+    memcpy(&raw, &value, sizeof(raw));
+    return bc_emit_u64le(function, raw);
+}
+
 int bc_module_write(FILE *output, const struct bc_module *module) {
     size_t i;
+
     if(fwrite(BC_MAGIC, 1, 4, output) != 4) { return 0; }
-    if(!bc_write_uleb128(output, module->version) || !bc_write_uleb128(output, module->entry_function)
-       || !bc_write_uleb128(output, module->constant_count) || !bc_write_uleb128(output, module->function_count)) {
+    if(!bc_write_u64le(output, module->version) || !bc_write_u64le(output, module->entry_function)
+       || !bc_write_u64le(output, module->constant_count) || !bc_write_u64le(output, module->function_count)) {
         return 0;
     }
 
@@ -265,7 +228,11 @@ int bc_module_write(FILE *output, const struct bc_module *module) {
 
         switch(constant->kind) {
             case BC_CONST_INTEGER:
-                if(!bc_write_sleb128(output, constant->value.integer)) { return 0; }
+                if(!bc_write_i64le(output, constant->value.integer)) { return 0; }
+                break;
+
+            case BC_CONST_BOOLEAN:
+                if(!bc_write_i64le(output, constant->value.integer ? 1 : 0)) { return 0; }
                 break;
 
             case BC_CONST_REAL:
@@ -278,18 +245,20 @@ int bc_module_write(FILE *output, const struct bc_module *module) {
 
             case BC_CONST_STRING:
                 len = strlen(constant->value.string);
-                if(!bc_write_uleb128(output, len) || fwrite(constant->value.string, 1, len, output) != len) { return 0; }
+                if(!bc_write_u64le(output, len) || fwrite(constant->value.string, 1, len, output) != len) { return 0; }
                 break;
+
+            default: return 0;
         }
     }
 
     for(i = 0; i < module->function_count; ++i) {
         const struct bc_function *function = &module->functions[i];
         size_t len = strlen(function->name);
-        if(!bc_write_uleb128(output, len) || fwrite(function->name, 1, len, output) != len
-           || !bc_write_uleb128(output, function->arity) || !bc_write_uleb128(output, function->local_count)
-           || !bc_write_uleb128(output, function->max_stack) || !bc_write_uleb128(output, function->flags)
-           || !bc_write_uleb128(output, function->code.size)
+        if(!bc_write_u64le(output, len) || fwrite(function->name, 1, len, output) != len
+           || !bc_write_u64le(output, function->arity) || !bc_write_u64le(output, function->local_count)
+           || !bc_write_u64le(output, function->max_stack) || !bc_write_u64le(output, function->flags)
+           || !bc_write_u64le(output, function->code.size)
            || fwrite(function->code.data, 1, function->code.size, output) != function->code.size) {
             return 0;
         }
@@ -306,14 +275,14 @@ int bc_module_read(FILE *input, struct bc_module *module) {
     bc_module_init(module);
     if(fread(magic, 1, 4, input) != 4 || memcmp(magic, BC_MAGIC, 4) != 0) { return 0; }
 
-    if(!bc_read_uleb128(input, &value)) { return 0; }
+    if(!bc_read_u64le(input, &value)) { return 0; }
     module->version = (uint32_t)value;
-    if(!bc_read_uleb128(input, &value)) { return 0; }
+    if(!bc_read_u64le(input, &value)) { return 0; }
     module->entry_function = (uint32_t)value;
-    if(!bc_read_uleb128(input, &value)) { return 0; }
+    if(!bc_read_u64le(input, &value)) { return 0; }
     if(!bc_ensure_constant_capacity(module, (size_t)value)) { return 0; }
     module->constant_count = (size_t)value;
-    if(!bc_read_uleb128(input, &value)) { return 0; }
+    if(!bc_read_u64le(input, &value)) { return 0; }
     if(!bc_ensure_function_capacity(module, (size_t)value)) { return 0; }
     module->function_count = (size_t)value;
 
@@ -327,11 +296,21 @@ int bc_module_read(FILE *input, struct bc_module *module) {
         switch(module->constants[i].kind) {
             case BC_CONST_INTEGER: {
                 int64_t signed_value;
-                if(!bc_read_sleb128(input, &signed_value)) {
+                if(!bc_read_i64le(input, &signed_value)) {
                     bc_module_free(module);
                     return 0;
                 }
                 module->constants[i].value.integer = signed_value;
+                break;
+            }
+
+            case BC_CONST_BOOLEAN: {
+                int64_t signed_value;
+                if(!bc_read_i64le(input, &signed_value)) {
+                    bc_module_free(module);
+                    return 0;
+                }
+                module->constants[i].value.integer = signed_value ? 1 : 0;
                 break;
             }
 
@@ -352,7 +331,7 @@ int bc_module_read(FILE *input, struct bc_module *module) {
 
             case BC_CONST_STRING: {
                 size_t len;
-                if(!bc_read_uleb128(input, &value)) {
+                if(!bc_read_u64le(input, &value)) {
                     bc_module_free(module);
                     return 0;
                 }
@@ -365,15 +344,18 @@ int bc_module_read(FILE *input, struct bc_module *module) {
                 module->constants[i].value.string[len] = '\0';
                 break;
             }
+
+            default: bc_module_free(module); return 0;
         }
     }
 
     for(i = 0; i < module->function_count; ++i) {
         struct bc_function *function = &module->functions[i];
         size_t len;
+
         memset(function, 0, sizeof(*function));
 
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }
@@ -385,27 +367,27 @@ int bc_module_read(FILE *input, struct bc_module *module) {
         }
         function->name[len] = '\0';
 
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }
         function->arity = (uint32_t)value;
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }
         function->local_count = (uint32_t)value;
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }
         function->max_stack = (uint32_t)value;
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }
         function->flags = (uint32_t)value;
-        if(!bc_read_uleb128(input, &value)) {
+        if(!bc_read_u64le(input, &value)) {
             bc_module_free(module);
             return 0;
         }

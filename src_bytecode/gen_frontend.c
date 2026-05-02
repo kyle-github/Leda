@@ -589,23 +589,30 @@ struct expressionRecord *generateFunctionCall(struct symbolTableRecord *syms, st
             q->value = (char *)genThunk(qe);
         } else if(ps->u.a.form == byReference) {
             // Build a reference
-            if(qe->operator== getGlobalOffset) { qe->operator= getOffset; }
             if(qe->operator== evalReference) {
                 q->value = (char *)qe->u.o.base;
             } else if(qe->operator!= getOffset) {
-                // Make a temp
-                struct expressionRecord *co = newExpression(commaOp);
-                struct expressionRecord *ne = newExpression(makeReference);
-                struct expressionRecord *temp = generateTemporary(syms, qe->resultType);
-                co->u.a.left = genAssignment(temp, qe);
-                co->u.a.right = ne;
-                ne->u.o.base = temp->u.o.base;
-                ne->u.o.location = temp->u.o.location;
-                ne->u.o.symbol = 0;
-                q->value = (char *)co;
+                if(qe->operator!= getGlobalOffset) {
+                    // Make a temp
+                    struct expressionRecord *co = newExpression(commaOp);
+                    struct expressionRecord *ne = newExpression(makeReference);
+                    struct expressionRecord *temp = generateTemporary(syms, qe->resultType);
+                    co->u.a.left = genAssignment(temp, qe);
+                    co->u.a.right = ne;
+                    ne->u.o.base = temp->u.o.base;
+                    ne->u.o.location = temp->u.o.location;
+                    ne->u.o.symbol = 0;
+                    q->value = (char *)co;
+                } else {
+                    struct expressionRecord *ne = newExpression(makeReference);
+                    ne->u.o.base = qe;
+                    ne->u.o.location = qe->u.o.location;
+                    ne->u.o.symbol = qe->u.o.symbol;
+                    q->value = (char *)ne;
+                }
             } else {
                 struct expressionRecord *ne = newExpression(makeReference);
-                ne->u.o.base = qe->u.o.base;
+                ne->u.o.base = qe;
                 ne->u.o.location = qe->u.o.location;
                 ne->u.o.symbol = qe->u.o.symbol;
                 q->value = (char *)ne;
@@ -746,16 +753,14 @@ struct expressionRecord *generateUnaryOperator(struct symbolTableRecord *syms, c
 struct expressionRecord *genAssignment(struct expressionRecord *left, struct expressionRecord *right) {
     // Should check that left is assignable
     // Can only assign an offset or a reference
-    if(left->operator== getGlobalOffset) { left->operator= getOffset; }
-
     struct expressionRecord *a = 0;
 
-    if(left->operator== getOffset) {
+    if(left->operator== getOffset || left->operator== getGlobalOffset) {
         // Make a new node for the reference to the left side
         struct expressionRecord *l = newExpression(makeReference);
         l->u.o.location = left->u.o.location;
         l->u.o.symbol = left->u.o.symbol;
-        l->u.o.base = left->u.o.base;
+        l->u.o.base = left;
 
         // Make a new node for the assignment
         a = newExpression(assignment);

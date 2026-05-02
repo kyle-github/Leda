@@ -22,12 +22,20 @@ enum bc_opcode {
     BC_OP_STORE_LOCAL = 10,
     BC_OP_LOAD_ARG = 11,
     BC_OP_STORE_ARG = 12,
+    BC_OP_MAKE_CLOSURE = 13,
+    BC_OP_CALL_CLOSURE = 14,
+    BC_OP_LOAD_CAPTURE_LOCAL = 15,
+    BC_OP_STORE_CAPTURE_LOCAL = 16,
+    BC_OP_LOAD_CAPTURE_ARG = 17,
+    BC_OP_STORE_CAPTURE_ARG = 18,
 };
 
 enum bc_constant_kind {
     BC_CONST_INTEGER = 1,
     BC_CONST_REAL = 2,
     BC_CONST_STRING = 3,
+    BC_CONST_BOOLEAN = 4,
+    BC_CONST_FUNCTION = 5,
 };
 
 struct bc_buffer {
@@ -42,6 +50,10 @@ struct bc_constant {
         int64_t integer;
         double real;
         char *string;
+        struct {
+            uint64_t function_index;
+            uint64_t parent_env_index;
+        } closure;
     } value;
 };
 
@@ -76,8 +88,8 @@ size_t bc_add_function(struct bc_module *module, const char *name, uint32_t arit
 
 int bc_emit_opcode(struct bc_function *function, enum bc_opcode opcode);
 int bc_emit_u8(struct bc_function *function, uint8_t value);
-int bc_emit_uleb128(struct bc_function *function, uint64_t value);
-int bc_emit_sleb128(struct bc_function *function, int64_t value);
+int bc_emit_u64le(struct bc_function *function, uint64_t value);
+int bc_emit_i64le(struct bc_function *function, int64_t value);
 
 int bc_module_write(FILE *output, const struct bc_module *module);
 int bc_module_read(FILE *input, struct bc_module *module);

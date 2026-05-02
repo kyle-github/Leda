@@ -177,9 +177,9 @@ All serialized integers should use a machine-independent encoding.
 The simplest good options are:
 
 - fixed-width integers in a declared byte order
-- ULEB128 and SLEB128 variable-length encodings
+- fixed 64-bit little-endian scalar encodings
 
-For this project, ULEB128 and SLEB128 are the best fit for most scalar fields because they are:
+For this project, fixed 64-bit little-endian scalar fields are the best fit because they are:
 
 - endian-independent
 - compact
@@ -188,8 +188,8 @@ For this project, ULEB128 and SLEB128 are the best fit for most scalar fields be
 Recommended use:
 
 - opcodes: one byte each
-- indexes, counts, arities, local counts, lengths: ULEB128
-- signed integer constants and signed branch deltas: SLEB128
+- indexes, counts, arities, local counts, lengths: unsigned 64-bit little-endian
+- signed integer constants and signed branch deltas: signed 64-bit little-endian
 
 ### Define one canonical floating-point encoding
 
@@ -220,7 +220,7 @@ The easiest rule is:
 
 That rule is independent of the host architecture. A big-endian VM must swap as needed. A little-endian VM can read directly.
 
-Using ULEB128 and SLEB128 for most fields will minimize the number of places where byte order matters at all.
+Using fixed-width 64-bit little-endian fields keeps decoding simple and makes patching operands straightforward.
 
 ### Define opcode widths independently of host word size
 
@@ -447,7 +447,8 @@ The important points are:
 
 - `function` identifies the active bytecode body
 - `ip` is the current instruction pointer within that body
-- `env` points to the heap environment for captured variables, or is null when the frame captures nothing
+- `env` names the lexical parent environment captured by the current closure call, or is null when the function has no captured outer scope
+- a live frame may also be promoted into a heap environment when an escaping closure captures its locals or arguments
 - `caller_frame_index` links back to the caller without storing a raw C stack pointer
 - `stack_base` marks the start of this frame's operand-stack slice
 - `arg_base` marks the first argument slot for frame-pointer-style argument access
@@ -495,12 +496,22 @@ Even if arguments are immutable by language convention in some cases, it is stil
 
 #### Captures
 
-- `OP_LOAD_CAPTURE slot`
-    - read `frame.env->slots[slot]`
-- `OP_STORE_CAPTURE slot`
-    - write the top-of-stack value to `frame.env->slots[slot]`
+The current bytecode slice uses separate opcodes for captured locals and captured arguments, each with an explicit lexical depth:
 
-These are never frame-stack accesses. They are explicit heap-environment accesses.
+- `OP_LOAD_CAPTURE_LOCAL depth slot`
+    - walk `depth` lexical environments outward from the current frame
+    - read the captured local slot from that promoted environment
+- `OP_STORE_CAPTURE_LOCAL depth slot`
+    - walk `depth` lexical environments outward from the current frame
+    - write the top-of-stack value into the captured local slot
+- `OP_LOAD_CAPTURE_ARG depth slot`
+    - walk `depth` lexical environments outward from the current frame
+    - read the captured argument slot from that promoted environment
+- `OP_STORE_CAPTURE_ARG depth slot`
+    - walk `depth` lexical environments outward from the current frame
+    - write the top-of-stack value into the captured argument slot
+
+These are never plain frame-stack accesses. They resolve through persistent promoted environments so a closure can outlive the function activation that created it.
 
 #### Why this split matters
 
@@ -518,25 +529,28 @@ That is the bytecode equivalent of frame-pointer-based addressing with explicit 
 
 #### Concrete environment definition
 
-The first explicit environment structure should be small and regular. A good starting point is:
+The current implementation uses a regular promoted-environment record per captured activation. Conceptually it is:
 
 ```c
 struct bc_env {
-        struct bc_env *parent;
-        uint16_t slot_count;
-        uint16_t flags;
-        struct ledaValue *slots[0];
+    struct bc_env *parent;
+    uint32_t arg_count;
+    uint32_t local_count;
+    struct ledaValue **args;
+    struct ledaValue **locals;
 };
 ```
 
 Where:
 
 - `parent` links to the next outer lexical environment when nested closures capture outer scopes
-- `slot_count` gives the number of capture slots stored in this environment
-- `flags` can distinguish immediate environments, boxed-cell layouts, or other later variants
-- `slots[i]` stores the captured values or cell references for the closure
+- `arg_count` and `local_count` preserve the original frame layout boundaries
+- `args[i]` stores captured argument slots for the activation
+- `locals[i]` stores captured local or temporary slots for the activation
 
-If boxed cells are used, each entry in `slots` can itself point to a heap cell object rather than directly to the value. That gives shared mutation semantics for captured variables.
+The VM promotes a live frame into one shared environment object the first time an escaping closure captures it. After that, both the still-running frame and any closures created from it read and write the same promoted slots. That gives the required shared-mutation semantics even after the creator later returns.
+
+If boxed cells are needed later, each entry in `args` or `locals` can itself point to a heap cell object rather than directly to the value.
 
 For example:
 
@@ -546,11 +560,11 @@ struct bc_cell {
 };
 ```
 
-Then the model becomes:
+So the current model is:
 
 - uncaptured local: stored directly in the current frame local area
-- captured immutable value: may be copied directly into `bc_env.slots`
-- captured mutable local: represented by a `bc_cell *` reachable from `bc_env.slots`
+- captured local or argument in a non-escaping activation: still accessible through the live frame until promotion happens
+- captured local or argument in an escaping activation: moved into a shared promoted environment and accessed there thereafter
 
 The closure object itself should then contain:
 
@@ -572,8 +586,8 @@ Constants should not embed runtime object pointers. The loader should construct 
 
 Constant payloads should be encoded as follows:
 
-- integers: SLEB128
-- string lengths: ULEB128 followed by raw bytes
+- integers: signed 64-bit little-endian
+- string lengths: unsigned 64-bit little-endian followed by raw bytes
 - strings: raw bytes plus length, not null-terminated C layout
 - reals: canonical IEEE-754 binary64 in the file's declared byte order
 
@@ -657,7 +671,7 @@ The first instruction set should be small, regular, and easy to interpret.
 - `OP_CALL argc`
 - `OP_CALL_METHOD method_slot argc`
 - `OP_CALL_PRIMITIVE primitive_id argc`
-- `OP_MAKE_CLOSURE function_index capture_count`
+- `OP_MAKE_CLOSURE function_index context_depth`
 - `OP_MAKE_THUNK function_index capture_count`
 
 ### Reference and thunk instructions
@@ -678,8 +692,10 @@ These are not required initially, but may be useful:
 
 - `OP_SWAP`
 - `OP_ROT`
-- `OP_LOAD_CAPTURE slot`
-- `OP_STORE_CAPTURE slot`
+- `OP_LOAD_CAPTURE_LOCAL depth slot`
+- `OP_STORE_CAPTURE_LOCAL depth slot`
+- `OP_LOAD_CAPTURE_ARG depth slot`
+- `OP_STORE_CAPTURE_ARG depth slot`
 
 The design should prefer a few explicit instructions over many specialized ones.
 
