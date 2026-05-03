@@ -34,10 +34,12 @@ int main(int argc, char **argv) {
 
     if(!bc_vm_run(&vm, error_buffer, sizeof(error_buffer))) {
         fprintf(stderr, "ledavm: %s\n", error_buffer);
+        bc_vm_free(&vm);
         bc_module_free(&module);
         return 1;
     }
 
+    bc_vm_free(&vm);
     bc_module_free(&module);
     return 0;
 }

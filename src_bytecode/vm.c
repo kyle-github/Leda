@@ -1,5 +1,6 @@
 #include "vm.h"
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -15,6 +16,8 @@ static struct bc_frame *vm_current_frame(struct bc_vm *vm) { return &vm->frames[
 
 static int vm_enter_frame(struct bc_vm *vm, struct bc_function *function, size_t arg_count, size_t caller_frame_index,
                           size_t closure_env_index, char *error_buffer, size_t error_buffer_size);
+static int vm_get_object_slot_ref(struct bc_constant *object, uint64_t slot_index, struct bc_constant ***slot_ref,
+                                  char *error_buffer, size_t error_buffer_size);
 
 static int vm_promote_frame_environment(struct bc_vm *vm, size_t frame_index, size_t *env_index, char *error_buffer,
                                         size_t error_buffer_size) {
@@ -46,6 +49,7 @@ static int vm_promote_frame_environment(struct bc_vm *vm, size_t frame_index, si
     environment->local_base = frame->arg_count;
     environment->arg_count = frame->arg_count;
     environment->local_count = frame->local_count;
+    environment->object = NULL;
 
     if(vm->environment_count == 0) {
         environment->arg_base = 0;
@@ -202,6 +206,9 @@ static int vm_get_capture_local_slot_ref(struct bc_vm *vm, uint64_t depth, uint6
     }
 
     environment = &vm->environments[env_index];
+    if(environment->object != NULL) {
+        return vm_get_object_slot_ref(environment->object, local_index, slot_ref, error_buffer, error_buffer_size);
+    }
     if(local_index >= environment->local_count) {
         vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot index");
         return 0;
@@ -289,6 +296,108 @@ static struct bc_constant *vm_alloc_runtime_function(struct bc_vm *vm, uint64_t 
     constant->value.closure.function_index = function_index;
     constant->value.closure.parent_env_index = parent_env_index;
     return constant;
+}
+
+static struct bc_constant *vm_alloc_runtime_reference(struct bc_vm *vm, struct bc_constant **slot_ref, char *error_buffer,
+                                                      size_t error_buffer_size) {
+    struct bc_constant *constant;
+
+    if(vm->runtime_constant_count >= BC_VM_MAX_RUNTIME_CONSTANTS) {
+        vm_set_error(error_buffer, error_buffer_size, "runtime constant storage exhausted");
+        return NULL;
+    }
+
+    constant = &vm->runtime_constants[vm->runtime_constant_count++];
+    constant->kind = BC_CONST_REFERENCE;
+    constant->value.slot_ref = slot_ref;
+    return constant;
+}
+
+static struct bc_constant *vm_alloc_runtime_envref(struct bc_vm *vm, uint64_t env_index, char *error_buffer,
+                                                   size_t error_buffer_size) {
+    struct bc_constant *constant;
+
+    if(vm->runtime_constant_count >= BC_VM_MAX_RUNTIME_CONSTANTS) {
+        vm_set_error(error_buffer, error_buffer_size, "runtime constant storage exhausted");
+        return NULL;
+    }
+
+    constant = &vm->runtime_constants[vm->runtime_constant_count++];
+    constant->kind = BC_CONST_ENVREF;
+    constant->value.env_index = env_index;
+    return constant;
+}
+
+static int vm_get_object_slot_ref(struct bc_constant *object, uint64_t slot_index, struct bc_constant ***slot_ref,
+                                  char *error_buffer, size_t error_buffer_size) {
+    if(object == NULL || object->kind != BC_CONST_OBJECT || object->value.object.slots == NULL) {
+        vm_set_error(error_buffer, error_buffer_size, "object slot access requires an object value");
+        return 0;
+    }
+    if(slot_index >= object->value.object.slot_count) {
+        vm_set_error(error_buffer, error_buffer_size, "object slot index out of range");
+        return 0;
+    }
+
+    *slot_ref = &object->value.object.slots[slot_index];
+    return 1;
+}
+
+static struct bc_constant *vm_alloc_runtime_object(struct bc_vm *vm, uint64_t slot_count, char *error_buffer,
+                                                   size_t error_buffer_size) {
+    struct bc_constant *constant;
+
+    if(vm->runtime_constant_count >= BC_VM_MAX_RUNTIME_CONSTANTS) {
+        vm_set_error(error_buffer, error_buffer_size, "runtime constant storage exhausted");
+        return NULL;
+    }
+
+    constant = &vm->runtime_constants[vm->runtime_constant_count++];
+    constant->kind = BC_CONST_OBJECT;
+    constant->value.object.slot_count = slot_count;
+    constant->value.object.slots = NULL;
+
+    if(slot_count > 0) {
+        constant->value.object.slots = (struct bc_constant **)calloc((size_t)slot_count, sizeof(struct bc_constant *));
+        if(constant->value.object.slots == NULL) {
+            constant->kind = 0;
+            constant->value.object.slot_count = 0;
+            vm->runtime_constant_count--;
+            vm_set_error(error_buffer, error_buffer_size, "runtime object allocation failed");
+            return NULL;
+        }
+    }
+
+    return constant;
+}
+
+static int vm_bind_object_environment(struct bc_vm *vm, struct bc_constant *object, size_t *env_index, char *error_buffer,
+                                      size_t error_buffer_size) {
+    struct bc_environment *environment;
+    size_t parent_env_index = SIZE_MAX;
+
+    if(object == NULL || object->kind != BC_CONST_OBJECT) {
+        vm_set_error(error_buffer, error_buffer_size, "method binding requires an object receiver");
+        return 0;
+    }
+    if(vm->environment_count >= BC_VM_MAX_ENVIRONMENTS) {
+        vm_set_error(error_buffer, error_buffer_size, "environment storage exhausted");
+        return 0;
+    }
+
+    if(object->value.object.slot_count > 1 && object->value.object.slots[1] != NULL
+       && object->value.object.slots[1]->kind == BC_CONST_ENVREF) {
+        parent_env_index = (size_t)object->value.object.slots[1]->value.env_index;
+    }
+
+    environment = &vm->environments[vm->environment_count];
+    memset(environment, 0, sizeof(*environment));
+    environment->parent_env_index = parent_env_index;
+    environment->arg_count = 0;
+    environment->local_count = (uint32_t)object->value.object.slot_count;
+    environment->object = object;
+    *env_index = vm->environment_count++;
+    return 1;
 }
 
 static int vm_validate_integer_primitive_args(struct bc_constant **argv, size_t argc, char *error_buffer,
@@ -595,6 +704,22 @@ int bc_vm_init(struct bc_vm *vm, struct bc_module *module) {
     return vm_enter_frame(vm, &module->functions[module->entry_function], 0, 0, SIZE_MAX, NULL, 0);
 }
 
+void bc_vm_free(struct bc_vm *vm) {
+    size_t index;
+
+    if(vm == NULL) { return; }
+
+    for(index = 0; index < vm->runtime_constant_count; ++index) {
+        if(vm->runtime_constants[index].kind == BC_CONST_OBJECT) {
+            free(vm->runtime_constants[index].value.object.slots);
+            vm->runtime_constants[index].value.object.slots = NULL;
+            vm->runtime_constants[index].value.object.slot_count = 0;
+        }
+    }
+
+    vm->runtime_constant_count = 0;
+}
+
 int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
     for(;;) {
         struct bc_frame *frame = vm_current_frame(vm);
@@ -733,6 +858,254 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                     return 0;
                 }
                 if(!vm_call_closure_value(vm, (size_t)argument_count, error_buffer, error_buffer_size)) { return 0; }
+                break;
+            }
+
+            case BC_OP_MAKE_REF_LOCAL: {
+                uint64_t local_index;
+                struct bc_constant **slot_ref;
+                struct bc_constant *reference;
+
+                if(!vm_read_u64le(vm, &local_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_REF_LOCAL operand");
+                    return 0;
+                }
+                frame = vm_current_frame(vm);
+                if(!vm_get_local_slot_ref(vm, frame, local_index, &slot_ref, error_buffer, error_buffer_size)) { return 0; }
+                reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
+                if(reference == NULL || vm->stack_size >= BC_VM_MAX_STACK) {
+                    if(reference != NULL) {
+                        vm_set_error(error_buffer, error_buffer_size, "operand stack overflow in MAKE_REF_LOCAL");
+                    }
+                    return 0;
+                }
+                vm->stack[vm->stack_size++] = reference;
+                break;
+            }
+
+            case BC_OP_MAKE_REF_ARG: {
+                uint64_t arg_index;
+                struct bc_constant **slot_ref;
+                struct bc_constant *reference;
+
+                if(!vm_read_u64le(vm, &arg_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_REF_ARG operand");
+                    return 0;
+                }
+                frame = vm_current_frame(vm);
+                if(!vm_get_arg_slot_ref(vm, frame, arg_index, &slot_ref, error_buffer, error_buffer_size)) { return 0; }
+                reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
+                if(reference == NULL || vm->stack_size >= BC_VM_MAX_STACK) {
+                    if(reference != NULL) {
+                        vm_set_error(error_buffer, error_buffer_size, "operand stack overflow in MAKE_REF_ARG");
+                    }
+                    return 0;
+                }
+                vm->stack[vm->stack_size++] = reference;
+                break;
+            }
+
+            case BC_OP_MAKE_REF_CAPTURE_LOCAL: {
+                uint64_t depth;
+                uint64_t local_index;
+                struct bc_constant **slot_ref;
+                struct bc_constant *reference;
+
+                if(!vm_read_u64le(vm, &depth) || !vm_read_u64le(vm, &local_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_REF_CAPTURE_LOCAL operand");
+                    return 0;
+                }
+                if(!vm_get_capture_local_slot_ref(vm, depth, local_index, &slot_ref, error_buffer, error_buffer_size)) {
+                    return 0;
+                }
+                reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
+                if(reference == NULL || vm->stack_size >= BC_VM_MAX_STACK) {
+                    if(reference != NULL) {
+                        vm_set_error(error_buffer, error_buffer_size, "operand stack overflow in MAKE_REF_CAPTURE_LOCAL");
+                    }
+                    return 0;
+                }
+                vm->stack[vm->stack_size++] = reference;
+                break;
+            }
+
+            case BC_OP_MAKE_REF_CAPTURE_ARG: {
+                uint64_t depth;
+                uint64_t arg_index;
+                struct bc_constant **slot_ref;
+                struct bc_constant *reference;
+
+                if(!vm_read_u64le(vm, &depth) || !vm_read_u64le(vm, &arg_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_REF_CAPTURE_ARG operand");
+                    return 0;
+                }
+                if(!vm_get_capture_arg_slot_ref(vm, depth, arg_index, &slot_ref, error_buffer, error_buffer_size)) { return 0; }
+                reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
+                if(reference == NULL || vm->stack_size >= BC_VM_MAX_STACK) {
+                    if(reference != NULL) {
+                        vm_set_error(error_buffer, error_buffer_size, "operand stack overflow in MAKE_REF_CAPTURE_ARG");
+                    }
+                    return 0;
+                }
+                vm->stack[vm->stack_size++] = reference;
+                break;
+            }
+
+            case BC_OP_LOAD_REF: {
+                struct bc_constant *reference;
+
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in LOAD_REF");
+                    return 0;
+                }
+
+                reference = vm->stack[vm->stack_size - 1];
+                if(reference == NULL || reference->kind != BC_CONST_REFERENCE || reference->value.slot_ref == NULL) {
+                    vm_set_error(error_buffer, error_buffer_size, "LOAD_REF requires a reference operand");
+                    return 0;
+                }
+
+                vm->stack[vm->stack_size - 1] = *reference->value.slot_ref;
+                break;
+            }
+
+            case BC_OP_BUILD_INSTANCE: {
+                uint64_t slot_count;
+                uint64_t arg_count;
+                struct bc_constant *instance;
+                struct bc_constant *context_ref;
+                size_t current_env_index;
+                size_t table_index;
+                size_t arg_index;
+
+                if(!vm_read_u64le(vm, &slot_count) || !vm_read_u64le(vm, &arg_count)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed BUILD_INSTANCE operand");
+                    return 0;
+                }
+                if(slot_count < 2 || arg_count + 2 > slot_count) {
+                    vm_set_error(error_buffer, error_buffer_size, "invalid BUILD_INSTANCE layout");
+                    return 0;
+                }
+                if(vm->stack_size < arg_count + 1) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in BUILD_INSTANCE");
+                    return 0;
+                }
+
+                table_index = vm->stack_size - (size_t)arg_count - 1;
+                instance = vm_alloc_runtime_object(vm, slot_count, error_buffer, error_buffer_size);
+                if(instance == NULL) { return 0; }
+                if(!vm_resolve_closure_env_index(vm, 0, &current_env_index, error_buffer, error_buffer_size)) { return 0; }
+                context_ref = vm_alloc_runtime_envref(vm, (uint64_t)current_env_index, error_buffer, error_buffer_size);
+                if(context_ref == NULL) { return 0; }
+
+                instance->value.object.slots[0] = vm->stack[table_index];
+                instance->value.object.slots[1] = context_ref;
+                for(arg_index = 0; arg_index < (size_t)arg_count; ++arg_index) {
+                    instance->value.object.slots[arg_index + 2] = vm->stack[table_index + 1 + arg_index];
+                }
+
+                vm->stack_size = table_index;
+                if(vm->stack_size >= BC_VM_MAX_STACK) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack overflow after BUILD_INSTANCE");
+                    return 0;
+                }
+                vm->stack[vm->stack_size++] = instance;
+                break;
+            }
+
+            case BC_OP_LOAD_OBJECT_SLOT: {
+                uint64_t slot_index;
+                struct bc_constant **slot_ref;
+
+                if(!vm_read_u64le(vm, &slot_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed LOAD_OBJECT_SLOT operand");
+                    return 0;
+                }
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in LOAD_OBJECT_SLOT");
+                    return 0;
+                }
+                if(!vm_get_object_slot_ref(vm->stack[vm->stack_size - 1], slot_index, &slot_ref, error_buffer,
+                                           error_buffer_size)) {
+                    return 0;
+                }
+                vm->stack[vm->stack_size - 1] = *slot_ref;
+                break;
+            }
+
+            case BC_OP_STORE_OBJECT_SLOT: {
+                uint64_t slot_index;
+                struct bc_constant **slot_ref;
+
+                if(!vm_read_u64le(vm, &slot_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed STORE_OBJECT_SLOT operand");
+                    return 0;
+                }
+                if(vm->stack_size < 2) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in STORE_OBJECT_SLOT");
+                    return 0;
+                }
+                if(!vm_get_object_slot_ref(vm->stack[vm->stack_size - 1], slot_index, &slot_ref, error_buffer,
+                                           error_buffer_size)) {
+                    return 0;
+                }
+                *slot_ref = vm->stack[vm->stack_size - 2];
+                vm->stack_size--;
+                break;
+            }
+
+            case BC_OP_MAKE_REF_OBJECT_SLOT: {
+                uint64_t slot_index;
+                struct bc_constant **slot_ref;
+                struct bc_constant *reference;
+
+                if(!vm_read_u64le(vm, &slot_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_REF_OBJECT_SLOT operand");
+                    return 0;
+                }
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in MAKE_REF_OBJECT_SLOT");
+                    return 0;
+                }
+                if(!vm_get_object_slot_ref(vm->stack[vm->stack_size - 1], slot_index, &slot_ref, error_buffer,
+                                           error_buffer_size)) {
+                    return 0;
+                }
+                reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
+                if(reference == NULL) { return 0; }
+                vm->stack[vm->stack_size - 1] = reference;
+                break;
+            }
+
+            case BC_OP_MAKE_METHOD: {
+                uint64_t method_index;
+                size_t method_env_index;
+                struct bc_constant **method_ref;
+                struct bc_constant *receiver;
+                struct bc_constant *method_value;
+                struct bc_constant *bound_method;
+
+                if(!vm_read_u64le(vm, &method_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_METHOD operand");
+                    return 0;
+                }
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in MAKE_METHOD");
+                    return 0;
+                }
+                receiver = vm->stack[vm->stack_size - 1];
+                if(!vm_bind_object_environment(vm, receiver, &method_env_index, error_buffer, error_buffer_size)) { return 0; }
+                if(!vm_get_object_slot_ref(receiver, 0, &method_ref, error_buffer, error_buffer_size)) { return 0; }
+                if(!vm_get_object_slot_ref(*method_ref, method_index, &method_ref, error_buffer, error_buffer_size)) { return 0; }
+                method_value = *method_ref;
+                if(method_value == NULL || method_value->kind != BC_CONST_FUNCTION) {
+                    vm_set_error(error_buffer, error_buffer_size, "method table entry is not a function closure");
+                    return 0;
+                }
+                bound_method = vm_alloc_runtime_function(vm, method_value->value.closure.function_index,
+                                                         (uint64_t)method_env_index, error_buffer, error_buffer_size);
+                if(bound_method == NULL) { return 0; }
+                vm->stack[vm->stack_size - 1] = bound_method;
                 break;
             }
 

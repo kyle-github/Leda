@@ -28,6 +28,16 @@ enum bc_opcode {
     BC_OP_STORE_CAPTURE_LOCAL = 16,
     BC_OP_LOAD_CAPTURE_ARG = 17,
     BC_OP_STORE_CAPTURE_ARG = 18,
+    BC_OP_MAKE_REF_LOCAL = 19,
+    BC_OP_MAKE_REF_ARG = 20,
+    BC_OP_MAKE_REF_CAPTURE_LOCAL = 21,
+    BC_OP_MAKE_REF_CAPTURE_ARG = 22,
+    BC_OP_LOAD_REF = 23,
+    BC_OP_BUILD_INSTANCE = 24,
+    BC_OP_LOAD_OBJECT_SLOT = 25,
+    BC_OP_STORE_OBJECT_SLOT = 26,
+    BC_OP_MAKE_REF_OBJECT_SLOT = 27,
+    BC_OP_MAKE_METHOD = 28,
 };
 
 enum bc_constant_kind {
@@ -36,6 +46,9 @@ enum bc_constant_kind {
     BC_CONST_STRING = 3,
     BC_CONST_BOOLEAN = 4,
     BC_CONST_FUNCTION = 5,
+    BC_CONST_REFERENCE = 6,
+    BC_CONST_OBJECT = 7,
+    BC_CONST_ENVREF = 8,
 };
 
 struct bc_buffer {
@@ -54,6 +67,12 @@ struct bc_constant {
             uint64_t function_index;
             uint64_t parent_env_index;
         } closure;
+        struct bc_constant **slot_ref;
+        struct {
+            uint64_t slot_count;
+            struct bc_constant **slots;
+        } object;
+        uint64_t env_index;
     } value;
 };
 
@@ -83,6 +102,7 @@ void bc_module_free(struct bc_module *module);
 size_t bc_add_integer_constant(struct bc_module *module, int64_t value);
 size_t bc_add_real_constant(struct bc_module *module, double value);
 size_t bc_add_string_constant(struct bc_module *module, const char *value);
+int bc_reserve_function_capacity(struct bc_module *module, size_t needed);
 size_t bc_add_function(struct bc_module *module, const char *name, uint32_t arity, uint32_t local_count, uint32_t max_stack,
                        uint32_t flags);
 

@@ -1,0 +1,4 @@
+Function[1] readRef
+MAKE_REF_LOCAL
+LOAD_REF
+CALL               1, 1, depth=0 ; function[1]=readRef

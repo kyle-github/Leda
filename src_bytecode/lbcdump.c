@@ -65,6 +65,16 @@ static const char *op_name(enum bc_opcode opcode) {
         case BC_OP_STORE_CAPTURE_LOCAL: return "STORE_CAPTURE_LOCAL";
         case BC_OP_LOAD_CAPTURE_ARG: return "LOAD_CAPTURE_ARG";
         case BC_OP_STORE_CAPTURE_ARG: return "STORE_CAPTURE_ARG";
+        case BC_OP_MAKE_REF_LOCAL: return "MAKE_REF_LOCAL";
+        case BC_OP_MAKE_REF_ARG: return "MAKE_REF_ARG";
+        case BC_OP_MAKE_REF_CAPTURE_LOCAL: return "MAKE_REF_CAPTURE_LOCAL";
+        case BC_OP_MAKE_REF_CAPTURE_ARG: return "MAKE_REF_CAPTURE_ARG";
+        case BC_OP_LOAD_REF: return "LOAD_REF";
+        case BC_OP_BUILD_INSTANCE: return "BUILD_INSTANCE";
+        case BC_OP_LOAD_OBJECT_SLOT: return "LOAD_OBJECT_SLOT";
+        case BC_OP_STORE_OBJECT_SLOT: return "STORE_OBJECT_SLOT";
+        case BC_OP_MAKE_REF_OBJECT_SLOT: return "MAKE_REF_OBJECT_SLOT";
+        case BC_OP_MAKE_METHOD: return "MAKE_METHOD";
     }
     return "<unknown>";
 }
@@ -112,6 +122,11 @@ static void print_const_ref(const struct bc_module *module, uint64_t index) {
             }
             printf(", env=%" PRIu64 ")", constant->value.closure.parent_env_index);
             break;
+        case BC_CONST_REFERENCE: printf(" ; const[%" PRIu64 "]=reference(runtime)", index); break;
+        case BC_CONST_OBJECT: printf(" ; const[%" PRIu64 "]=object(runtime)", index); break;
+        case BC_CONST_ENVREF:
+            printf(" ; const[%" PRIu64 "]=envref(runtime:%" PRIu64 ")", index, constant->value.env_index);
+            break;
     }
 }
 
@@ -136,7 +151,8 @@ static int print_instruction(const struct bc_module *module, const struct bc_fun
         case BC_OP_HALT:
         case BC_OP_POP:
         case BC_OP_DUP:
-        case BC_OP_RETURN: break;
+        case BC_OP_RETURN:
+        case BC_OP_LOAD_REF: break;
         case BC_OP_CONST: {
             uint64_t index;
             if(!read_u64(fn, ip, &index)) { return 0; }
@@ -168,11 +184,24 @@ static int print_instruction(const struct bc_module *module, const struct bc_fun
             }
             break;
         }
+        case BC_OP_BUILD_INSTANCE: {
+            uint64_t slot_count;
+            uint64_t arg_count;
+            if(!read_u64(fn, ip, &slot_count) || !read_u64(fn, ip, &arg_count)) { return 0; }
+            printf(" %" PRIu64 ", %" PRIu64, slot_count, arg_count);
+            break;
+        }
         case BC_OP_LOAD_LOCAL:
         case BC_OP_STORE_LOCAL:
         case BC_OP_LOAD_ARG:
         case BC_OP_STORE_ARG:
-        case BC_OP_CALL_CLOSURE: {
+        case BC_OP_CALL_CLOSURE:
+        case BC_OP_MAKE_REF_LOCAL:
+        case BC_OP_MAKE_REF_ARG:
+        case BC_OP_LOAD_OBJECT_SLOT:
+        case BC_OP_STORE_OBJECT_SLOT:
+        case BC_OP_MAKE_REF_OBJECT_SLOT:
+        case BC_OP_MAKE_METHOD: {
             uint64_t operand;
             if(!read_u64(fn, ip, &operand)) { return 0; }
             printf(" %" PRIu64, operand);
@@ -189,7 +218,9 @@ static int print_instruction(const struct bc_module *module, const struct bc_fun
         case BC_OP_LOAD_CAPTURE_LOCAL:
         case BC_OP_STORE_CAPTURE_LOCAL:
         case BC_OP_LOAD_CAPTURE_ARG:
-        case BC_OP_STORE_CAPTURE_ARG: {
+        case BC_OP_STORE_CAPTURE_ARG:
+        case BC_OP_MAKE_REF_CAPTURE_LOCAL:
+        case BC_OP_MAKE_REF_CAPTURE_ARG: {
             uint64_t depth, slot;
             if(!read_u64(fn, ip, &depth) || !read_u64(fn, ip, &slot)) { return 0; }
             printf(" depth=%" PRIu64 ", slot=%" PRIu64, depth, slot);

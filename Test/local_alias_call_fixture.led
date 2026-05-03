@@ -3,13 +3,10 @@ begin
     return cfunction Leda_integer_plus(x, 1)->integer;
 end;
 
-function apply(f : function(integer)->integer, x : integer)->integer;
-begin
-    return f(x);
-end;
-
 var
+    f : function(integer)->integer;
     y : integer;
 begin
-    y := apply(add1, 2);
+    f := add1;
+    y := f(2);
 end;

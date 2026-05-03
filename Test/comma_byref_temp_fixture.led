@@ -3,13 +3,13 @@ begin
     return cfunction Leda_integer_plus(x, 1)->integer;
 end;
 
-function apply(f : function(integer)->integer, x : integer)->integer;
+function ignore(byRef x : integer)->integer;
 begin
-    return f(x);
+    return 0;
 end;
 
 var
     y : integer;
 begin
-    y := apply(add1, 2);
+    y := ignore(add1(1));
 end;

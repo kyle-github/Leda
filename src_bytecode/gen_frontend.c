@@ -22,6 +22,7 @@ extern char *fileName;
 
 
 static struct expressionRecord *genOffset(struct expressionRecord *base, int i, struct symbolRecord *s, struct typeRecord *t);
+static struct expressionRecord *genClassTableLiteral(struct symbolRecord *class_symbol);
 
 
 struct statementRecord *newStatement(enum statements st) {
@@ -159,6 +160,20 @@ struct statementRecord *genBody(struct symbolTableRecord *syms, struct statement
             struct statementRecord *st =
                 genAssignmentStatement(genOffset(base, sym->u.s.location, 0, sym->u.s.val->resultType), sym->u.s.val);
             st->lineNumber = sym->u.s.lineNumber;
+            st->next = code;
+            code = st;
+        }
+    }
+
+    for(struct list *p = syms->firstSymbol; p; p = p->next) {
+        struct symbolRecord *sym = (struct symbolRecord *)p->value;
+        if(sym->styp == classDefSymbol) {
+            struct expressionRecord *target = genOffset(base, sym->u.c.location, 0, 0);
+            struct expressionRecord *value = genClassTableLiteral(sym);
+            struct statementRecord *st;
+
+            if(value == 0) { continue; }
+            st = genExpressionStatement(genAssignment(target, value));
             st->next = code;
             code = st;
         }
@@ -316,6 +331,59 @@ static struct expressionRecord *generateTemporary(struct symbolTableRecord *syms
     sprintf(name, "Leda_temporary_%d", tempCount++);
 
     return genFromSymbol(newExpression(getCurrentContext), addVariable(syms, newString(name), t), 1, 0);
+}
+
+static struct expressionRecord *genClassTableLiteral(struct symbolRecord *class_symbol) {
+    struct typeRecord *class_type;
+    struct symbolTableRecord *class_symbols;
+    struct expressionRecord **slot_values;
+    struct expressionRecord *table_expr;
+    struct list *args = 0;
+    int slot_index;
+
+    if(class_symbol == NULL || class_symbol->styp != classDefSymbol) { return 0; }
+
+    class_type = class_symbol->u.c.typ;
+    if(class_type != NULL && class_type->ttyp == qualifiedType) { class_type = class_type->u.q.baseType; }
+    if(class_type == NULL || class_type->ttyp != classType || class_type->u.c.symbols == NULL) { return 0; }
+
+    class_symbols = class_type->u.c.symbols;
+    slot_values = (struct expressionRecord **)calloc((size_t)class_symbols->u.c.methodTableSize, sizeof(*slot_values));
+    if(slot_values == NULL) { yyerror("out of memory building class table literal"); }
+
+    for(slot_index = 2; slot_index < class_symbols->u.c.methodTableSize; ++slot_index) {
+        slot_values[slot_index] = integerConstant(0);
+    }
+
+    for(struct list *p = class_symbols->u.c.methodTable; p; p = p->next) {
+        struct symbolRecord *method_symbol = (struct symbolRecord *)p->value;
+        struct expressionRecord *closure_expr;
+
+        if(method_symbol->styp != functionSymbol || method_symbol->u.f.location < 0
+           || method_symbol->u.f.location >= class_symbols->u.c.methodTableSize) {
+            continue;
+        }
+
+        closure_expr = newExpression(makeClosure);
+        closure_expr->u.l.context = newExpression(getCurrentContext);
+        closure_expr->u.l.code = method_symbol->u.f.code;
+        closure_expr->u.l.functionName = method_symbol->name;
+        closure_expr->resultType = method_symbol->u.f.typ;
+        slot_values[method_symbol->u.f.location] = closure_expr;
+    }
+
+    for(slot_index = class_symbols->u.c.methodTableSize - 1; slot_index >= 2; --slot_index) {
+        args = newList((char *)slot_values[slot_index], args);
+    }
+
+    free(slot_values);
+
+    table_expr = newExpression(buildInstance);
+    table_expr->u.n.table = integerConstant(0);
+    table_expr->u.n.size = class_symbols->u.c.methodTableSize;
+    table_expr->u.n.args = args;
+    table_expr->resultType = class_type;
+    return table_expr;
 }
 
 

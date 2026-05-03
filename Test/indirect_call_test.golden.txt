@@ -1,0 +1,3 @@
+Function[1] apply
+CALL               1, 2, depth=0 ; function[1]=apply
+CALL_CLOSURE       1

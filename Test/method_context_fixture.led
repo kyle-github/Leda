@@ -1,0 +1,20 @@
+include "std.led";
+
+class Pair;
+var
+    left : integer;
+    right : integer;
+
+    function getLeft()->integer;
+    begin
+        return left;
+    end;
+end;
+
+var
+    pairValue : Pair;
+    value : integer;
+begin
+    pairValue := Pair(3, 2);
+    value := pairValue.getLeft();
+end;

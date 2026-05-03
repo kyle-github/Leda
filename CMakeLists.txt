@@ -168,7 +168,7 @@ add_test(NAME lbcdump_test
         -DLEDAC_PATH=$<TARGET_FILE:ledac>
         -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
         -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/lbcdump_fixture.led
-        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/lbcdump_test.expect
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/lbcdump_test.golden.txt
         -DRUN_VM=OFF
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
 add_test(NAME direct_call_test
@@ -178,8 +178,85 @@ add_test(NAME direct_call_test
         -DLEDAC_PATH=$<TARGET_FILE:ledac>
         -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
         -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/direct_call_fixture.led
-        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/direct_call_test.expect
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/direct_call_test.golden.txt
         -DRUN_VM=OFF
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME constant_alias_call_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=constant_alias_call_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/constant_alias_call_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/constant_alias_call_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME local_alias_call_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=local_alias_call_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/local_alias_call_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/local_alias_call_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME comma_byref_temp_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=comma_byref_temp_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/comma_byref_temp_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/comma_byref_temp_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME eval_reference_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=eval_reference_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/eval_reference_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/eval_reference_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME build_instance_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=build_instance_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/build_instance_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/build_instance_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME object_slot_access_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=object_slot_access_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/object_slot_access_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/object_slot_access_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME method_context_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=method_context_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/method_context_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/method_context_test.golden.txt
+        -DRUN_VM=ON
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
 add_test(NAME nested_direct_call_test
     COMMAND ${CMAKE_COMMAND}
@@ -189,7 +266,7 @@ add_test(NAME nested_direct_call_test
         -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
         -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
         -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/nested_direct_call_fixture.led
-        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/nested_direct_call_test.expect
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/nested_direct_call_test.golden.txt
         -DRUN_VM=ON
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
 add_test(NAME indirect_call_test
@@ -200,6 +277,6 @@ add_test(NAME indirect_call_test
         -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
         -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
         -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/indirect_call_fixture.led
-        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/indirect_call_test.expect
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/indirect_call_test.golden.txt
         -DRUN_VM=ON
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)

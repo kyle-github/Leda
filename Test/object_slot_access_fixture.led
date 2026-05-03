@@ -1,0 +1,16 @@
+include "std.led";
+
+class Pair;
+var
+    left : integer;
+    right : integer;
+end;
+
+var
+    pairValue : Pair;
+    value : integer;
+begin
+    pairValue := Pair(1, 2);
+    pairValue.left := 3;
+    value := pairValue.left;
+end;

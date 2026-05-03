@@ -141,6 +141,8 @@ static int bc_ensure_function_capacity(struct bc_module *module, size_t needed) 
     return 1;
 }
 
+int bc_reserve_function_capacity(struct bc_module *module, size_t needed) { return bc_ensure_function_capacity(module, needed); }
+
 size_t bc_add_integer_constant(struct bc_module *module, int64_t value) {
     size_t index = module->constant_count;
     if(!bc_ensure_constant_capacity(module, index + 1)) { return (size_t)-1; }
@@ -248,6 +250,11 @@ int bc_module_write(FILE *output, const struct bc_module *module) {
                 if(!bc_write_u64le(output, len) || fwrite(constant->value.string, 1, len, output) != len) { return 0; }
                 break;
 
+            case BC_CONST_FUNCTION:
+            case BC_CONST_REFERENCE:
+            case BC_CONST_OBJECT:
+            case BC_CONST_ENVREF: return 0;
+
             default: return 0;
         }
     }
@@ -344,6 +351,11 @@ int bc_module_read(FILE *input, struct bc_module *module) {
                 module->constants[i].value.string[len] = '\0';
                 break;
             }
+
+            case BC_CONST_FUNCTION:
+            case BC_CONST_REFERENCE:
+            case BC_CONST_OBJECT:
+            case BC_CONST_ENVREF: bc_module_free(module); return 0;
 
             default: bc_module_free(module); return 0;
         }

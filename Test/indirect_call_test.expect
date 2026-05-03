@@ -1,2 +1,0 @@
-MAKE_CLOSURE       function=1 [add1], depth=0
-CALL_CLOSURE       1

@@ -16,6 +16,7 @@ struct bc_environment {
     size_t local_base;
     uint32_t arg_count;
     uint32_t local_count;
+    struct bc_constant *object;
 };
 
 struct bc_frame {
@@ -48,5 +49,6 @@ struct bc_vm {
 
 int bc_vm_init(struct bc_vm *vm, struct bc_module *module);
 int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size);
+void bc_vm_free(struct bc_vm *vm);
 
 #endif

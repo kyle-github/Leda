@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [Purpose](#purpose)
+- [Status Snapshot](#status-snapshot)
 - [Current Implementation Baseline](#current-implementation-baseline)
 - [Target Architecture](#target-architecture)
 - [Major Design Decisions](#major-design-decisions)
@@ -10,7 +11,7 @@
 - [Repository Layout](#repository-layout)
 - [Execution Model](#execution-model)
 - [Bytecode File Format](#bytecode-file-format)
-    - [Lessons from Little Smalltalk images](#lessons-from-little-smalltalk-images)
+  - [Lessons from Little Smalltalk images](#lessons-from-little-smalltalk-images)
 - [Instruction Set](#instruction-set)
 - [Compiler Design](#compiler-design)
 - [Virtual Machine Design](#virtual-machine-design)
@@ -41,6 +42,168 @@ The resulting toolchain should consist of:
 
 - `ledac`: compile `.led` or `.leda` source files into `.lbc` bytecode files
 - `ledavm`: load `.lbc` bytecode files and execute them with a stack-based virtual machine
+
+## Status Snapshot
+
+This document began as a design and migration plan. As of May 2, 2026, it also serves as an implementation status report for the code under `src_bytecode/`.
+
+The short version is:
+
+- the bytecode toolchain exists and builds as three executables: `ledac`, `ledavm`, and `lbcdump`
+- the portable module format is implemented and round-trippable
+- the compiler backend lowers a meaningful slice of the Leda AST to bytecode
+- the VM executes that slice, including closures, captured variables, references, object construction, and object slot access
+- narrow bytecode regressions are wired into CTest and have been the main driver for development
+- method support is under active implementation and is the main remaining blocker before broader library and regression-suite parity
+- `patternMatch` is still not implemented in the bytecode compiler or VM
+
+The current implementation is therefore no longer a stub or architecture sketch. It is a working bytecode compiler and VM for a non-trivial subset of the language, with several advanced runtime features already present.
+
+### What is implemented today
+
+At a high level, the following pieces are in place.
+
+#### Frontend duplication under `src_bytecode/`
+
+The bytecode pipeline does not depend on the legacy `Src/` implementation as its execution backend. The parser, lexer, semantic analysis, and AST-construction support needed for bytecode compilation have local copies under `src_bytecode/`.
+
+The important files are:
+
+- `lc_frontend.c`
+- `types_frontend.c`
+- `gen_frontend.c`
+- `frontend_runtime_support.c`
+- `lexer.l`
+- `gram.y`
+
+This means the bytecode work is following the intended architecture: reuse the frontend model, but evolve it locally for bytecode execution.
+
+#### Bytecode module format
+
+The module format is implemented in `bytecode.h` and `bytecode.c`.
+
+Concrete status:
+
+- the file header uses explicit magic and version fields
+- constants are serialized through explicit portable encoders rather than dumped native structs
+- integer, real, and string constants are supported on disk
+- function metadata and bytecode streams are serialized explicitly
+- the reader reconstructs a `bc_module` from disk
+- runtime-only constants such as closures, references, objects, and environment references are intentionally rejected by the serializer, which keeps `.lbc` a portable code-and-literal container rather than a heap snapshot
+
+That last point is important: runtime state is still created dynamically by the VM. The `.lbc` file contains portable code and portable literals, not live runtime objects.
+
+#### Disassembler
+
+`lbcdump` exists and is part of the regular workflow.
+
+It is not just a debugging convenience. In practice it has become the main structural validation tool for compiler work. Each narrow regression test checks for specific bytecode text in the dump output, so the dump format is part of the current testing surface.
+
+#### AST-to-bytecode lowering already implemented
+
+The compiler backend in `bc_emit.c` is no longer limited to trivial constants. The currently implemented lowering includes:
+
+- top-level function creation and module entry selection
+- constant emission for integers, reals, and strings
+- local loads and stores
+- argument loads and stores
+- captured local loads and stores
+- captured argument loads and stores
+- expression statements
+- explicit returns and implicit fallthrough return insertion
+- conditionals and loop-oriented control flow through jumps and patching
+- direct calls when the callee can be resolved to a known closure literal or stable alias
+- indirect closure calls
+- primitive calls
+- closure literal emission with nested function compilation
+- assignment lowering, including known-call-state updates used by direct-call optimization
+- `commaOp`
+- `makeReference`
+- `evalReference`
+- `buildInstance`
+- object slot loads, stores, and reference creation
+- initial `makeMethodContext` lowering
+- compatibility lowering for `tailCall` statements as ordinary returns
+- compatibility lowering for `evalThunk` as a zero-argument closure call
+
+This list matters because it shows that the bytecode backend has already moved past the "simple statements only" stage. The compiler now handles several of the runtime-model features that originally looked like later-phase work.
+
+#### VM runtime already implemented
+
+The runtime in `vm.c` has also moved beyond a minimal stack machine.
+
+Implemented runtime areas include:
+
+- module execution entry
+- operand-stack and frame-stack management
+- frame-relative locals and arguments
+- closure calls and explicit indirect closure calls
+- direct-call entry using compiled function indexes
+- primitive dispatch
+- conditional and unconditional jumps
+- reference objects for locals, arguments, captured locals, captured arguments, and object slots
+- reference dereference through `BC_OP_LOAD_REF`
+- promoted lexical environments for captured variables
+- closure environment resolution across lexical depth
+- object allocation for `buildInstance`
+- object slot reads and writes
+- object-slot reference creation
+- environment-reference support used by the in-progress method implementation
+- initial method binding through `BC_OP_MAKE_METHOD`
+
+The VM is therefore already executing code that depends on lexical capture, mutation through references, and instance-slot indirection. That is materially beyond a "toy VM" stage.
+
+### What has been validated
+
+The currently validated bytecode slices are the ones covered by the narrow CTest regressions.
+
+The following tests have already been green together during this implementation cycle:
+
+- `lbcdump_test`
+- `direct_call_test`
+- `constant_alias_call_test`
+- `local_alias_call_test`
+- `comma_byref_temp_test`
+- `eval_reference_test`
+- `build_instance_test`
+- `object_slot_access_test`
+- `nested_direct_call_test`
+- `indirect_call_test`
+
+Those tests cover both bytecode shape and runtime behavior, depending on the fixture. In other words, the current bytecode system is not just compiling without crashing; it is executing real Leda programs correctly for those covered features.
+
+### What is only partially implemented
+
+The main incomplete area is method support.
+
+What is already present for methods:
+
+- `BC_OP_MAKE_METHOD` exists in the opcode set
+- the VM has runtime support for binding a method closure to an object-backed environment
+- the object model now stores the extra environment information needed for method execution
+- the frontend has begun synthesizing class-table literals so methods can become real bytecode closures instead of remaining legacy runtime stubs
+- a dedicated narrow regression, `method_context_test`, exists in CTest
+
+What is not complete yet:
+
+- the emitted module does not yet contain the expected user-defined method closure for the current method fixture
+- class-table materialization is producing a much larger method population from the standard library, but the specific user method being targeted is still missing from the compiled module
+- because of that, method parity is not yet established and the `method_context_test` fixture remains red
+
+This is a genuine implementation gap, not just a missing assertion update.
+
+The other clearly known missing feature is `patternMatch`. That operator still does not have bytecode lowering or VM execution support.
+
+### What remains before broader parity
+
+The remaining work should be understood as feature completion, not project bootstrap.
+
+The biggest remaining items are:
+
+- finish method compilation and execution semantics
+- implement `patternMatch`
+- expand coverage from narrow focused fixtures to more of the legacy regression corpus through `ledac` plus `ledavm`
+- continue checking that standard-library initialization paths behave correctly when class tables and methods are created through bytecode-visible objects rather than legacy interpreter-only runtime helpers
 
 ## Current Implementation Baseline
 
@@ -424,7 +587,6 @@ The `.lbc` format should be portable and semantic.
 
 The header should contain:
 
-
 #### Concrete frame definition
 
 The first VM implementation should make that layout explicit with a native frame structure such as:
@@ -463,9 +625,8 @@ This is intentionally frame-pointer-like even if the VM never materializes a sep
 - current `bc_frame`
 
 So `OP_LOAD_ARG 0` means "load from the current frame's argument area at `arg_base + 0`", and `OP_LOAD_LOCAL 0` means "load from the current frame's local area at `local_base + 0`".
+
 - entry function index
-
-
 
 The header should also carry format-capability bits that make portability rules explicit, such as:
 
@@ -476,21 +637,21 @@ The slot-oriented bytecodes should be defined as frame-relative or environment-r
 #### Locals and temporaries
 
 - `OP_LOAD_LOCAL slot`
-    - read `frame.locals[slot]`
-    - equivalently, read operand-stack storage at `frame.local_base + slot`
+  - read `frame.locals[slot]`
+  - equivalently, read operand-stack storage at `frame.local_base + slot`
 - `OP_STORE_LOCAL slot`
-    - write the top-of-stack value to `frame.locals[slot]`
-    - leave the stored value on the operand stack unless a later `OP_POP` removes it
+  - write the top-of-stack value to `frame.locals[slot]`
+  - leave the stored value on the operand stack unless a later `OP_POP` removes it
 
 These opcodes cover ordinary locals and compiler-created temporaries. The compiler can place both in the same indexed local area.
 
 #### Arguments
 
 - `OP_LOAD_ARG slot`
-    - read `frame.args[slot]`
-    - equivalently, read operand-stack storage at `frame.arg_base + slot`
+  - read `frame.args[slot]`
+  - equivalently, read operand-stack storage at `frame.arg_base + slot`
 - `OP_STORE_ARG slot`
-    - write the top-of-stack value to `frame.args[slot]`
+  - write the top-of-stack value to `frame.args[slot]`
 
 Even if arguments are immutable by language convention in some cases, it is still useful to define `OP_STORE_ARG` because by-reference or lowered helper code may need a uniform writable slot model.
 
@@ -499,17 +660,17 @@ Even if arguments are immutable by language convention in some cases, it is stil
 The current bytecode slice uses separate opcodes for captured locals and captured arguments, each with an explicit lexical depth:
 
 - `OP_LOAD_CAPTURE_LOCAL depth slot`
-    - walk `depth` lexical environments outward from the current frame
-    - read the captured local slot from that promoted environment
+  - walk `depth` lexical environments outward from the current frame
+  - read the captured local slot from that promoted environment
 - `OP_STORE_CAPTURE_LOCAL depth slot`
-    - walk `depth` lexical environments outward from the current frame
-    - write the top-of-stack value into the captured local slot
+  - walk `depth` lexical environments outward from the current frame
+  - write the top-of-stack value into the captured local slot
 - `OP_LOAD_CAPTURE_ARG depth slot`
-    - walk `depth` lexical environments outward from the current frame
-    - read the captured argument slot from that promoted environment
+  - walk `depth` lexical environments outward from the current frame
+  - read the captured argument slot from that promoted environment
 - `OP_STORE_CAPTURE_ARG depth slot`
-    - walk `depth` lexical environments outward from the current frame
-    - write the top-of-stack value into the captured argument slot
+  - walk `depth` lexical environments outward from the current frame
+  - write the top-of-stack value into the captured argument slot
 
 These are never plain frame-stack accesses. They resolve through persistent promoted environments so a closure can outlive the function activation that created it.
 
@@ -737,6 +898,297 @@ Representative mappings:
 - return statements -> `OP_RETURN` or `OP_TAILCALL`
 
 This mapping is only the starting point. The compiler should then normalize and simplify the result before final bytecode emission.
+
+### Actual lowering logic in the current implementation
+
+The current compiler in `bc_emit.c` is no longer only following the abstract mapping above. It contains concrete lowering rules that resolve AST shapes into specific bytecodes based on slot classification, lexical depth, and a small amount of local call-flow knowledge.
+
+The important point is that lowering is not a flat "one AST node equals one opcode" pass. Several branches first classify the expression or statement into one of a few runtime categories and only then choose the emitted bytecodes.
+
+#### Top-level compilation
+
+`bc_compile_top_level(...)` initializes a fresh `bc_module`, reserves function capacity up front, allocates the entry function as `__top__`, then lowers the top-level statement list into that function.
+
+The top-level lowering logic does three important things beyond simply iterating statements:
+
+- it keeps a `bc_compile_context` that tracks pending nested functions so closure compilation can emit additional bytecode functions into the same module
+- it keeps a `bc_call_state` for direct-call optimization information within the current linear slice
+- it emits an implicit `BC_OP_HALT` if the top-level code falls through
+
+That means top-level lowering is already building a complete multi-function module, not just a single bytecode stream.
+
+#### Statement lowering
+
+The statement side is split between `bc_compile_simple_statement(...)`, `bc_compile_control_flow_statement(...)`, and `bc_compile_statement_range(...)`.
+
+Current statement forms are lowered as follows.
+
+- `makeLocalsStatement`
+  - no opcode is emitted
+  - the lowering only raises `function->local_count` to the required slot count
+  - local allocation is therefore a compile-time frame-shape decision, not a runtime instruction
+- `nullStatement`
+  - emits nothing
+- `expressionStatement`
+  - lowers the expression exactly as an expression
+  - whether a `POP` is emitted depends on the expression-specific lowering, not on the statement wrapper itself
+- `returnStatement`
+  - lowers the return expression
+  - then emits `BC_OP_RETURN`
+- `tailCall`
+  - currently lowered identically to `returnStatement`
+  - there is not yet a separate tail-call bytecode; this is a compatibility lowering used so method bodies and other frontend-produced code can compile
+
+`bc_compile_statement_range(...)` is responsible for preserving control-flow boundaries. It walks a linear statement slice until a stop marker, delegating conditional shapes to the control-flow lowering helper and stopping early when an explicit return prevents fallthrough.
+
+#### Conditional and loop lowering
+
+`conditionalStatement` lowering is not based on a separate loop AST node. The compiler first inspects the linked statement structure to decide whether the conditional represents a `while`-like back-edge or a plain if/else split.
+
+The logic is:
+
+- if the true branch can reach the conditional node again through the linked statement chain, treat it as a loop
+- otherwise, compute a linear join point between the true and false branches and treat it as a conditional branch
+
+For loop-shaped conditionals, lowering does this:
+
+1. remember the current bytecode offset as the loop start
+2. lower the condition expression
+3. emit `BC_OP_JUMP_IF_FALSE` with a placeholder delta
+4. lower the loop body statements
+5. if the body falls through, emit a backward `BC_OP_JUMP` to the recorded loop start
+6. patch the false-jump operand to the first instruction after the loop
+
+For if/else-shaped conditionals, lowering does this:
+
+1. lower the condition expression
+2. emit `BC_OP_JUMP_IF_FALSE` with a placeholder operand
+3. lower the true branch up to the computed join point
+4. if the true branch falls through and there is a distinct false branch, emit a placeholder unconditional `BC_OP_JUMP` over the false branch
+5. patch the false-jump to the start of the false branch
+6. lower the false branch, if present
+7. patch the end jump to the join point
+
+After either shape, the compiler clears the local direct-call cache because control-flow joins invalidate the simple linear assumptions used by that optimization.
+
+#### Slot-resolution logic before load and store emission
+
+The most important lowering logic in the current compiler is the slot-classification path used by both loads and stores.
+
+Before emitting a load or store bytecode, `bc_emit.c` asks what the AST slot access really means at runtime. The main categories are:
+
+- current-frame local
+- current-frame argument
+- captured local in an outer lexical environment
+- captured argument in an outer lexical environment
+- top-level or context-local slot reachable through the current context chain
+- object slot access that could not be resolved as one of the above
+
+That classification is done with helpers such as:
+
+- `bc_resolve_context_depth(...)`
+- `bc_match_context_local_slot(...)`
+- `bc_match_function_local_slot_with_depth(...)`
+- `bc_match_function_arg_slot_with_depth(...)`
+- `bc_match_current_function_arg_slot_core(...)`
+- `bc_resolve_slot_ref_from_expression(...)`
+- `bc_resolve_slot_ref_from_assignment_target(...)`
+
+The result is that bytecode load/store selection is based on resolved frame semantics, not on surface AST spelling.
+
+#### Load lowering
+
+For `getOffset` and `getGlobalOffset`, the compiler tries the following resolution order.
+
+1. If the expression identifies a function local, emit:
+   - `BC_OP_LOAD_LOCAL` for depth `0`
+   - `BC_OP_LOAD_CAPTURE_LOCAL` for depth `> 0`
+2. Else if it identifies a function argument, emit:
+   - `BC_OP_LOAD_ARG` for depth `0`
+   - `BC_OP_LOAD_CAPTURE_ARG` for depth `> 0`
+3. Else if it resolves as a context-local slot through the current-context chain, emit:
+   - `BC_OP_LOAD_LOCAL` when the resolved depth is `0`
+   - `BC_OP_LOAD_CAPTURE_LOCAL` when the resolved depth is outer
+4. Else if it is still a direct current-context slot access, treat it as a local and emit `BC_OP_LOAD_LOCAL`
+5. Else if it is a `getOffset(base, location)` that cannot be resolved as a local or argument slot, lower it as an object slot access by:
+   - lowering `base`
+   - emitting `BC_OP_LOAD_OBJECT_SLOT location`
+
+This is one of the key current design choices: unresolved `getOffset` does not immediately fail. It falls back to object-slot semantics if the shape is consistent with instance access.
+
+#### Constant lowering
+
+Constant lowering is straightforward but still does real module construction work.
+
+- `genIntegerConstant`
+  - add the integer to the module constant pool with `bc_add_integer_constant(...)`
+  - emit `BC_OP_CONST <const-index>`
+- `genRealConstant`
+  - add the real to the constant pool
+  - emit `BC_OP_CONST <const-index>`
+- `genStringConstant`
+  - add the string to the constant pool
+  - emit `BC_OP_CONST <const-index>`
+
+So constants are interned into the module as part of lowering, not as a separate pre-pass.
+
+#### Assignment lowering
+
+Assignments are more complex than simple slot stores because the compiler first asks whether the target is an object slot or a frame/environment slot.
+
+The lowering sequence is:
+
+1. inspect the left-hand side with `bc_assignment_target_is_object_slot(...)`
+2. if it is an object slot:
+   - lower the right-hand side value
+   - lower the object base expression
+   - emit `BC_OP_STORE_OBJECT_SLOT <slot>`
+3. otherwise:
+   - lower the right-hand side value
+   - lower the assignment target to one of:
+     - `BC_OP_STORE_LOCAL`
+     - `BC_OP_STORE_ARG`
+     - `BC_OP_STORE_CAPTURE_LOCAL`
+     - `BC_OP_STORE_CAPTURE_ARG`
+4. emit `BC_OP_POP`
+
+That final `POP` is deliberate. In the current frontend semantics, assignment expressions do not produce a remaining stack value for later use in this bytecode slice.
+
+After the store, the compiler also updates the direct-call cache through `bc_update_known_call_state_after_assignment(...)`. If the assignment stores a closure literal into a resolvable slot, later calls through that slot can be lowered as direct `BC_OP_CALL` instead of indirect `BC_OP_CALL_CLOSURE`.
+
+#### Closure lowering
+
+`makeClosure` lowering goes through `bc_emit_closure_literal(...)`, which in turn depends on `bc_ensure_function_compiled(...)`.
+
+That logic does several things:
+
+- if the closure body has already been assigned a bytecode function index, reuse it
+- otherwise allocate a new bytecode function record in the module
+- compile the nested statement list into that function immediately
+- emit an implicit `BC_OP_RETURN` if the nested function falls through
+- resolve the lexical context depth from the closure's context expression
+- emit `BC_OP_MAKE_CLOSURE <function-index> <context-depth>` into the enclosing function
+
+This means nested functions are compiled lazily on first use as closure literals, but once compiled they become ordinary entries in the module function table.
+
+#### Direct-call versus indirect-call lowering
+
+`doFunctionCall` lowering first tries to avoid indirect closure dispatch.
+
+The compiler checks whether the callee can be resolved as:
+
+- a direct closure literal
+- a slot known, through the current `bc_call_state`, to contain a specific closure literal assigned earlier in the same linear slice
+
+If that succeeds, lowering emits:
+
+- argument lowering for each argument expression
+- `BC_OP_CALL <function-index> <argc> <context-depth>`
+
+If that fails, lowering emits:
+
+1. code for the callee expression itself
+2. code for each argument expression
+3. `BC_OP_CALL_CLOSURE <argc>`
+
+So the current compiler already performs a small but meaningful optimization pass during lowering: it converts certain closure calls back into direct indexed calls when the callee identity is still statically known.
+
+#### Primitive-call lowering
+
+`doSpecialCall` lowering is simpler.
+
+The compiler:
+
+1. validates that the primitive index is non-negative
+2. lowers each argument in order
+3. emits `BC_OP_CALL_PRIMITIVE <primitive-index> <argc>`
+
+There is no late primitive-name resolution in the VM. That work is already done by the frontend before bytecode lowering runs.
+
+#### Reference lowering
+
+The reference path is split between creation and dereference.
+
+For `makeReference`, the compiler first tries to resolve the target as a slot reference. If it succeeds, it emits one of:
+
+- `BC_OP_MAKE_REF_LOCAL`
+- `BC_OP_MAKE_REF_ARG`
+- `BC_OP_MAKE_REF_CAPTURE_LOCAL`
+- `BC_OP_MAKE_REF_CAPTURE_ARG`
+
+If the target is not a frame or environment slot but is an object slot, lowering instead:
+
+1. lowers the base object expression
+2. emits `BC_OP_MAKE_REF_OBJECT_SLOT <slot>`
+
+For `evalReference`, lowering simply:
+
+1. lowers the reference expression
+2. emits `BC_OP_LOAD_REF`
+
+This preserves the existing frontend model where references are explicit values rather than hidden aliasing behavior in ordinary loads and stores.
+
+#### Comma-expression lowering
+
+`commaOp` is lowered as sequencing rather than as a special runtime operation.
+
+The compiler:
+
+1. lowers the left expression
+2. if the left expression produces a value, emits `BC_OP_POP` to discard it
+3. lowers the right expression and leaves its result as the result of the comma expression
+
+The helper `bc_expression_produces_value(...)` is what decides whether the left-hand side needs the discard `POP`.
+
+#### Thunk lowering
+
+The current frontend still produces `evalThunk` nodes for by-name argument usage. In the current bytecode slice, lowering treats those nodes as zero-argument closure invocation.
+
+The emitted sequence is:
+
+1. lower the thunk expression itself
+2. emit `BC_OP_CALL_CLOSURE 0`
+
+This is explicitly a compatibility lowering that matches the current runtime meaning of a thunk as a closure whose body is executed when forced.
+
+#### Instance-construction lowering
+
+`buildInstance` lowering is already using the runtime object layout conventions of the legacy interpreter.
+
+The compiler:
+
+1. validates that the requested object size is at least `2`
+   - slot `0` is the method table
+   - slot `1` is the global or environment support slot used by the runtime model
+2. lowers the table expression first
+3. lowers each constructor argument in order
+4. checks that the provided argument count fits into the declared object layout
+5. emits `BC_OP_BUILD_INSTANCE <size> <argument-count>`
+
+This means the VM can reconstruct the conventional object layout without needing the frontend AST at runtime.
+
+#### Method-context lowering
+
+`makeMethodContext` lowering is intentionally small at the compiler level.
+
+The compiler:
+
+1. validates that there is a receiver base expression and a non-negative method slot index
+2. lowers the receiver object expression
+3. emits `BC_OP_MAKE_METHOD <slot>`
+
+The actual binding logic is therefore pushed into the VM. That is why the method implementation work has required coordinated changes in frontend class-table generation and runtime environment handling rather than only new compiler opcodes.
+
+#### Current limitations of lowering
+
+The detailed lowering above also makes the current gaps clearer.
+
+- unsupported AST operators still fail explicitly through `bc_set_unsupported_expression_error(...)` or `bc_set_unsupported_statement_error(...)`
+- `tailCall` does not yet receive a distinct optimized bytecode form
+- `patternMatch` still has no lowering path
+- method lowering exists, but the supporting class-table compilation path is still incomplete, which is why the dedicated method regression remains red
+
+So the lowering layer is now substantial and deliberate, but it is still a partial semantic compiler rather than a complete lowering of the full Leda AST.
 
 ### Lowering should remove AST-level structure, not preserve it
 
@@ -1394,141 +1846,266 @@ The AST gives a working semantic checkpoint. Eliminating it too early would remo
 
 ## Implementation Phases
 
+This section started as a proposed sequence. It now doubles as a progress ledger.
+
 ### Phase 1: bytecode data structures
 
-- define opcode enum
-- define constant pool
-- define function record
-- define module record
-- define serializer and loader
+Status: substantially complete.
 
-Deliverable:
+Completed work:
 
-- an `.lbc` file can be written and read back
+- opcode enum defined and in active use
+- constant kinds defined
+- function and module records defined
+- serializer implemented
+- loader implemented
+- portable integer, real, and string constant encoding implemented
+- runtime-only constant kinds explicitly excluded from on-disk serialization
+- disassembler support added for the active opcodes and constant kinds
+
+Remaining work in this phase is mostly maintenance:
+
+- keep serializer, reader, and disassembler aligned as new opcodes or constant kinds are introduced
+- decide whether a later file-format revision needs more metadata or debug information
 
 ### Phase 2: minimal VM
 
-- implement operand stack
-- implement frames
-- implement `OP_CONST`, `OP_POP`, `OP_CALL`, `OP_RETURN`, `OP_JUMP`, `OP_JUMP_IF_FALSE`, `OP_HALT`
-- implement basic constant loading
+Status: complete and significantly exceeded.
 
-Deliverable:
+Completed work:
 
-- a hand-written bytecode program can run
+- operand stack implemented
+- frame stack implemented
+- `CONST`, `POP`, `RETURN`, `JUMP`, `JUMP_IF_FALSE`, and `HALT` implemented
+- direct and indirect call execution implemented
+- local and argument slot access implemented
+
+This phase is no longer the limiting factor. The VM is already executing a broader instruction slice than was originally proposed here.
 
 ### Phase 3: compile top-level and simple functions
 
-- compile constants
-- compile variable loads and stores
-- compile sequencing and returns
-- compile conditionals and loops
-- compile direct function calls
+Status: complete.
 
-Deliverable:
+Completed work:
 
-- simple arithmetic and control-flow programs run through `ledac` and `ledavm`
+- top-level function emission implemented
+- constant emission implemented
+- local and argument loads and stores implemented
+- expression statements and returns implemented
+- conditionals and loop-oriented control flow implemented
+- direct call lowering implemented
+- indirect closure calls implemented
+
+This phase has been validated repeatedly through the narrow bytecode tests and is stable enough to support later work.
 
 ### Phase 4: primitive support
 
-- implement primitive id mapping
-- implement primitive table
-- compile `cfunction`
-- connect VM dispatch to runtime primitive handlers
+Status: partially complete but functionally sufficient for the current validated slice.
 
-Deliverable:
+Completed work:
 
-- built-in arithmetic, conversion, printing, allocation, and slot access work in the VM
+- primitive-call lowering exists
+- VM primitive dispatch exists
+- current narrow fixtures and standard-library setup paths rely on that primitive mechanism successfully
+
+Still needed:
+
+- broader confirmation that all primitives used by the legacy regression suite behave identically under the VM
+- continued parity work as more of the standard library executes through bytecode
 
 ### Phase 5: closures and lexical capture
 
-- add closure objects with bytecode code pointers
-- add captured environments
-- compile nested functions and thunks
+Status: mostly complete for the currently exercised language slice.
 
-Deliverable:
+Completed work:
 
-- nested functions and by-name arguments work
+- closure literal emission implemented
+- nested bytecode function compilation implemented
+- captured local and captured argument opcodes implemented
+- environment promotion implemented in the VM
+- direct and indirect closure calls validated
+- `evalThunk` lowering now maps to zero-argument closure invocation
+
+The main remaining risk here is not basic closure mechanics. The remaining risk is interaction with methods and richer library code.
 
 ### Phase 6: methods classes and instances
 
-- compile class-generated methods
-- implement method dispatch
-- preserve class table conventions
+Status: partially complete.
 
-Deliverable:
+Completed work:
 
-- object-oriented parts of the standard library work
+- instance construction via `buildInstance` works
+- object slot access works
+- object-slot references work
+- initial method-binding opcode and runtime support exist
+- class-table materialization has begun in the frontend
+- object-backed method environments exist in the VM
+- dedicated method regression coverage exists
+
+Not complete:
+
+- user-defined methods are not yet consistently materialized as bytecode closures in the compiled module
+- method regression still fails
+- class-table and method-table conventions are not yet fully validated against the existing standard library and user classes
+
+This is the current frontier of the implementation.
 
 ### Phase 7: references pattern matching relations
 
-- implement by-reference argument behavior
-- implement `is` pattern handling
-- validate relation library behavior
+Status: mixed.
 
-Deliverable:
+Completed work:
 
-- the current test suite exercises advanced language features through the VM
+- by-reference support is implemented for the current bytecode slice
+- reference creation and dereference are implemented and tested
+- comma-expression support needed by by-reference lowering is implemented and tested
+
+Not complete:
+
+- `patternMatch` is still missing
+- relation-heavy coverage has not yet been re-established under `ledavm`
 
 ### Phase 8: parity and retirement
 
-- compare AST and VM outputs on regression corpus
-- fix semantic mismatches
-- retire AST interpreter if desired
+Status: not complete.
 
-Deliverable:
+Current state:
 
-- bytecode VM becomes default execution engine
+- the legacy interpreter remains the broader compatibility reference
+- bytecode parity is being established incrementally through narrow, behavior-scoped tests
+- the full legacy regression corpus has not yet been ported to the bytecode runtime path
+
+The bytecode implementation is far enough along to justify this incremental strategy. It is not yet ready to replace the legacy interpreter as the default execution backend.
 
 ## Testing Strategy
 
-Testing should happen at multiple levels.
+Testing is now centered on executable CTest fixtures rather than on hypothetical future unit-test buckets.
 
-### Bytecode unit tests
+### Actual current process
 
-Test:
+The current workflow for each new bytecode feature has been:
 
-- opcode encoding and decoding
-- constant pool serialization
-- jump patching
-- line table correctness
+1. add or adjust a very small `.led` fixture under `Test/`
+2. add a corresponding `.golden.txt` file containing the important bytecode-disassembly substrings that must appear
+3. wire a dedicated `add_test(...)` entry into `CMakeLists.txt`
+4. run only that one new test first
+5. if it passes, rerun the existing bytecode regression set to catch over-broad lowering changes
 
-### VM unit tests
+This has been much more effective than trying to jump directly to the full regression corpus after every change.
 
-Test:
+### How the CTest bytecode harness works
 
-- stack operations
-- call and return behavior
-- tail calls
-- primitive dispatch
-- environment capture
+The helper script `Test/run_bytecode_test.cmake` performs the same sequence for every bytecode regression:
 
-### Compiler tests
+1. create a per-test output directory under `build/Testing/<test-name>`
+2. run `ledac` on the fixture and fail immediately if compilation returns non-zero
+3. run `lbcdump` on the resulting `.lbc` file and save the textual dump
+4. optionally run `ledavm` when runtime execution is part of the test
+5. read the `.golden.txt` file line by line and require every non-empty line to appear somewhere in the disassembly dump
 
-For selected AST forms, check emitted bytecode structure for:
+This means each test simultaneously validates:
 
-- arithmetic expressions
-- assignment statements
-- conditionals
-- loops
-- function calls
-- primitive calls
+- compiler success
+- serializable `.lbc` output
+- readable disassembly
+- expected bytecode shape
+- optional VM execution success
 
-### End-to-end tests
+The harness is intentionally substring-based rather than exact-output-based. That keeps the tests portable across minor dump-format growth while still checking the semantic bytecode shape that matters for the feature under test.
 
-Use existing Leda test programs from `Test/` to compare:
+### Current narrow bytecode regressions
 
-- current interpreter output
-- bytecode VM output
+The current bytecode-specific tests in `CMakeLists.txt` are:
 
-### Differential testing
+- `lbcdump_test`
+  - validates basic module generation and readable disassembly
+- `direct_call_test`
+  - validates direct-call lowering when the callee is statically identifiable
+- `constant_alias_call_test`
+  - validates direct-call preservation through constant aliases and runtime execution
+- `local_alias_call_test`
+  - validates local alias tracking and runtime execution
+- `comma_byref_temp_test`
+  - validates comma-expression lowering used by by-reference temporary handling
+- `eval_reference_test`
+  - validates reference dereference lowering and runtime execution
+- `build_instance_test`
+  - validates instance construction lowering and runtime execution
+- `object_slot_access_test`
+  - validates object slot load, store, and reference behavior through the VM
+- `method_context_test`
+  - dedicated in-progress regression for method binding and execution
+- `nested_direct_call_test`
+  - validates direct-call lowering in nested contexts
+- `indirect_call_test`
+  - validates ordinary closure-call fallback when direct resolution is not available
 
-The most valuable migration test is differential execution between:
+This list is important because it shows the project has moved to behavior-scoped regression coverage rather than relying on manual inspection.
 
-- current AST interpreter
-- new bytecode VM
+### Legacy regression coverage
 
-If both use the same front end, then mismatches are almost certainly in bytecode lowering or VM runtime behavior.
+The legacy interpreter still has a much broader CTest-backed regression corpus through `lc`.
+
+That corpus remains useful in two ways:
+
+- it is the semantic reference for expected Leda behavior
+- it identifies which features still have to be implemented before the bytecode toolchain can run the same programs end to end
+
+At the moment, the bytecode runtime is not yet a drop-in replacement for that full corpus because methods and pattern matching are still incomplete.
+
+### What has worked well in practice
+
+The most effective test discipline so far has been:
+
+- use one narrow fixture per missing lowering or runtime feature
+- validate the new slice immediately after the first edit that implements it
+- rerun the already-green bytecode fixtures after each slice to catch regressions in slot resolution or call lowering
+
+That workflow has already caught multiple real regressions, including:
+
+- incorrect top-level slot classification
+- over-broad object-slot fallback logic
+- expression-statement stack cleanup mistakes
+- missing support for `commaOp`
+- incorrect handling of by-reference temporaries
+- incomplete runtime support for references and object slots
+
+### Current test status
+
+Current status is not uniformly green.
+
+Green bytecode regressions:
+
+- `lbcdump_test`
+- `direct_call_test`
+- `constant_alias_call_test`
+- `local_alias_call_test`
+- `comma_byref_temp_test`
+- `eval_reference_test`
+- `build_instance_test`
+- `object_slot_access_test`
+- `nested_direct_call_test`
+- `indirect_call_test`
+
+Current red bytecode regression:
+
+- `method_context_test`
+
+The method test is valuable even while failing, because it has already driven several concrete implementation steps:
+
+- `BC_OP_MAKE_METHOD`
+- runtime environment references
+- object-backed method environments
+- frontend class-table synthesis
+- compatibility lowering for method-adjacent AST forms encountered in method bodies
+
+### Recommended ongoing testing order
+
+Until method support and pattern matching are finished, the practical order remains:
+
+1. run the narrow feature-specific bytecode test that corresponds to the code being changed
+2. rerun the rest of the existing bytecode regressions
+3. only then widen scope toward more of the legacy corpus
 
 ## Compatibility Risks
 
@@ -1556,32 +2133,25 @@ If VM stacks and frames are not correctly visible to the collector, failures wil
 
 ## Recommended First Milestone
 
-The first milestone should be intentionally limited.
+This milestone has already been surpassed.
 
-Support only:
+The implementation now supports far more than the original first milestone target, including:
 
-- integer constants
-- string constants
-- global variables
-- local variables
-- assignment
-- straight-line execution
-- `if`
-- `while`
-- ordinary function calls
-- returns
-- a minimal primitive set for integer ops and printing
-
-Do not begin with:
-
-- methods
 - closures
-- by-name arguments
-- by-reference arguments
-- relations
-- pattern matching
+- captured environments
+- by-reference semantics for the current bytecode slice
+- thunk evaluation lowering
+- object construction
+- object slot access
+- direct-call optimization for several closure-identification cases
 
-Those features should come after the compiler, module format, VM loop, frame model, and primitive mechanism are all known to work.
+The current practical milestone is no longer "get a minimal VM running".
+
+The current practical milestone is:
+
+- finish method support
+- implement `patternMatch`
+- keep expanding bytecode regression coverage until meaningful subsets of the legacy regression corpus can run through `ledac` plus `ledavm`
 
 The right first success condition is:
 

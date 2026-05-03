@@ -1,0 +1,10 @@
+function readRef(byRef x : integer)->integer;
+begin
+    return x;
+end;
+
+var
+    y : integer;
+begin
+    y := readRef(1);
+end;
