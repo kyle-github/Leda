@@ -1,0 +1,43 @@
+include "std.led";
+
+class Shape;
+var
+    color : integer;
+end;
+
+class Rect of Shape;
+var
+    width  : integer;
+    height : integer;
+end;
+
+{ Returns width if direct Rect match, else 0 }
+function checkDirect(r : Rect) -> integer;
+var
+    w : integer;
+    h : integer;
+begin
+    if r is Rect(w, h) then
+        return w;
+    return 0;
+end;
+
+{ Returns color if parent-chain Shape match, else 0 }
+function checkParent(r : Rect) -> integer;
+var
+    c : integer;
+begin
+    if r is Shape(c) then
+        return c;
+    return 0;
+end;
+
+var
+    r      : Rect;
+    direct : integer;
+    parent : integer;
+begin
+    r      := Rect(7, 3, 5);
+    direct := checkDirect(r);
+    parent := checkParent(r);
+end;

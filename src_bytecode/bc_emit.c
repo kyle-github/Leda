@@ -1,5 +1,6 @@
 #include "bc_emit.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1178,6 +1179,78 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                 return 0;
             }
             if(function->max_stack < argument_count + 1u) { function->max_stack = (uint32_t)(argument_count + 1u); }
+            return 1;
+        }
+
+        case patternMatch: {
+            size_t false_jump_operand_offset;
+            size_t true_join_operand_offset;
+            struct list *arg;
+            uint64_t field_index;
+            size_t true_const_index;
+            size_t false_const_index;
+
+            if(!bc_compile_expression(context, expression->u.p.base, function, call_state, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            if(!bc_compile_expression(context, expression->u.p.class, function, call_state, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            if(!bc_emit_jump_placeholder(function, BC_OP_BR_IF_NOT_KIND, &false_jump_operand_offset, error_buffer,
+                                         error_buffer_size, "unable to emit BR_IF_NOT_KIND")) {
+                return 0;
+            }
+
+            /* true path: base is on top of stack, class was popped */
+            field_index = 2;
+            for(arg = expression->u.p.args; arg != NULL; arg = arg->next, field_index++) {
+                if(!bc_emit_opcode(function, BC_OP_DUP)) {
+                    bc_set_error(error_buffer, error_buffer_size, "unable to emit DUP for pattern field binding");
+                    return 0;
+                }
+                if(!bc_emit_opcode(function, BC_OP_LOAD_OBJECT_SLOT) || !bc_emit_u64le(function, field_index)) {
+                    bc_set_error(error_buffer, error_buffer_size, "unable to emit LOAD_OBJECT_SLOT for pattern field");
+                    return 0;
+                }
+                if(!bc_compile_assignment_target((struct expressionRecord *)arg->value, function, error_buffer,
+                                                  error_buffer_size)) {
+                    return 0;
+                }
+                if(!bc_emit_opcode(function, BC_OP_POP)) {
+                    bc_set_error(error_buffer, error_buffer_size, "unable to emit POP after pattern field store");
+                    return 0;
+                }
+            }
+            if(!bc_emit_opcode(function, BC_OP_POP)) {
+                bc_set_error(error_buffer, error_buffer_size, "unable to emit POP for pattern base");
+                return 0;
+            }
+            true_const_index = bc_add_integer_constant(context->module, 1);
+            if(true_const_index == (size_t)-1
+               || !bc_emit_const_index(function, true_const_index, error_buffer, error_buffer_size,
+                                       "unable to emit true constant for pattern match")) {
+                return 0;
+            }
+            if(!bc_emit_jump_placeholder(function, BC_OP_JUMP, &true_join_operand_offset, error_buffer, error_buffer_size,
+                                         "unable to emit pattern match join jump")) {
+                return 0;
+            }
+
+            /* false path */
+            if(!bc_patch_jump_target(function, false_jump_operand_offset, function->code.size, error_buffer, error_buffer_size,
+                                     "unable to patch BR_IF_NOT_KIND false target")) {
+                return 0;
+            }
+            false_const_index = bc_add_integer_constant(context->module, 0);
+            if(false_const_index == (size_t)-1
+               || !bc_emit_const_index(function, false_const_index, error_buffer, error_buffer_size,
+                                       "unable to emit false constant for pattern match")) {
+                return 0;
+            }
+            if(!bc_patch_jump_target(function, true_join_operand_offset, function->code.size, error_buffer, error_buffer_size,
+                                     "unable to patch pattern match join target")) {
+                return 0;
+            }
             return 1;
         }
 

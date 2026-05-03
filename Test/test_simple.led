@@ -1,0 +1,18 @@
+include "std.led";
+
+class Box;
+var value : integer;
+end;
+
+function check(b : Box) -> integer;
+var v : integer;
+begin
+    if b is Box(v) then
+        return v;
+    return 0;
+end;
+
+var b : Box;
+begin
+    b := Box(42);
+end;

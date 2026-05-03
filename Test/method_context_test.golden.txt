@@ -1,4 +1,4 @@
-Function[1] getLeft
+getLeft
 MAKE_METHOD
 CALL_CLOSURE       0
 LOAD_CAPTURE_LOCAL depth=1, slot=2

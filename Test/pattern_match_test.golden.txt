@@ -1,0 +1,5 @@
+checkDirect
+BR_IF_NOT_KIND
+checkParent
+BR_IF_NOT_KIND
+LOAD_CAPTURE_LOCAL depth=1, slot=

@@ -269,6 +269,17 @@ add_test(NAME nested_direct_call_test
         -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/nested_direct_call_test.golden.txt
         -DRUN_VM=ON
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME pattern_match_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=pattern_match_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/pattern_match_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/pattern_match_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
 add_test(NAME indirect_call_test
     COMMAND ${CMAKE_COMMAND}
         -DTEST_NAME=indirect_call_test

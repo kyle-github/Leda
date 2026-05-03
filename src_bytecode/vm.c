@@ -1,5 +1,6 @@
 #include "vm.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1074,6 +1075,49 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                 reference = vm_alloc_runtime_reference(vm, slot_ref, error_buffer, error_buffer_size);
                 if(reference == NULL) { return 0; }
                 vm->stack[vm->stack_size - 1] = reference;
+                break;
+            }
+
+            case BC_OP_BR_IF_NOT_KIND: {
+                int64_t delta;
+                struct bc_constant *base;
+                struct bc_constant *class_obj;
+                struct bc_constant *current_class;
+                bool matched = false;
+
+                if(!vm_read_i64le(vm, &delta)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed BR_IF_NOT_KIND operand");
+                    return 0;
+                }
+                if(vm->stack_size < 2) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in BR_IF_NOT_KIND");
+                    return 0;
+                }
+
+                class_obj = vm->stack[--vm->stack_size];
+                base = vm->stack[vm->stack_size - 1];
+
+                if(base != NULL && base->kind == BC_CONST_OBJECT && base->value.object.slot_count > 0) {
+                    current_class = base->value.object.slots[0];
+                    while(current_class != NULL && current_class->kind == BC_CONST_OBJECT) {
+                        if(current_class == class_obj) {
+                            matched = true;
+                            break;
+                        }
+                        if(current_class->value.object.slot_count <= 4) { break; }
+                        struct bc_constant *parent = current_class->value.object.slots[4];
+                        if(parent == NULL || parent->kind != BC_CONST_OBJECT || parent == current_class) { break; }
+                        current_class = parent;
+                    }
+                }
+
+                if(!matched) {
+                    vm->stack_size--;
+                    if(!vm_apply_jump_delta(vm, delta, error_buffer, error_buffer_size,
+                                            "BR_IF_NOT_KIND jump target out of range")) {
+                        return 0;
+                    }
+                }
                 break;
             }
 

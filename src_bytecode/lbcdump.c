@@ -75,6 +75,7 @@ static const char *op_name(enum bc_opcode opcode) {
         case BC_OP_STORE_OBJECT_SLOT: return "STORE_OBJECT_SLOT";
         case BC_OP_MAKE_REF_OBJECT_SLOT: return "MAKE_REF_OBJECT_SLOT";
         case BC_OP_MAKE_METHOD: return "MAKE_METHOD";
+        case BC_OP_BR_IF_NOT_KIND: return "BR_IF_NOT_KIND";
     }
     return "<unknown>";
 }
@@ -161,7 +162,8 @@ static int print_instruction(const struct bc_module *module, const struct bc_fun
             break;
         }
         case BC_OP_JUMP:
-        case BC_OP_JUMP_IF_FALSE: {
+        case BC_OP_JUMP_IF_FALSE:
+        case BC_OP_BR_IF_NOT_KIND: {
             int64_t delta;
             if(!read_i64(fn, ip, &delta)) { return 0; }
             printf(" %" PRId64 " -> %" PRId64, delta, (int64_t)(*ip) + delta);

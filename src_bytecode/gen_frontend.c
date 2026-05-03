@@ -174,6 +174,34 @@ struct statementRecord *genBody(struct symbolTableRecord *syms, struct statement
 
             if(value == 0) { continue; }
             st = genExpressionStatement(genAssignment(target, value));
+
+            /* Wire up slot 4 (parent class table) after the class table is stored */
+            struct typeRecord *ct = sym->u.c.typ;
+            if(ct != NULL && ct->ttyp == classType && ct->u.c.parent != NULL) {
+                struct symbolRecord *parent_sym = NULL;
+                struct symbolTableRecord *search;
+                for(search = syms; search != NULL && parent_sym == NULL; search = search->surroundingContext) {
+                    struct list *q;
+                    for(q = search->firstSymbol; q != NULL; q = q->next) {
+                        struct symbolRecord *candidate = (struct symbolRecord *)q->value;
+                        if(candidate->styp == classDefSymbol && candidate->u.c.typ == ct->u.c.parent) {
+                            parent_sym = candidate;
+                            break;
+                        }
+                    }
+                }
+                if(parent_sym != NULL) {
+                    struct expressionRecord *class_load = genOffset(base, sym->u.c.location, 0, 0);
+                    struct expressionRecord *slot4 = genOffset(class_load, 4, 0, 0);
+                    struct expressionRecord *parent_load = genOffset(base, parent_sym->u.c.location, 0, 0);
+                    struct statementRecord *fixup = genExpressionStatement(genAssignment(slot4, parent_load));
+                    fixup->next = code;
+                    st->next = fixup;
+                    code = st;
+                    continue;
+                }
+            }
+
             st->next = code;
             code = st;
         }
@@ -289,6 +317,7 @@ static struct expressionRecord *genFromSymbol(struct expressionRecord *base, str
 
         case classDefSymbol:
             e = genOffset(base, s->u.c.location, 0, 0);
+            if(isGlobals) { e->operator= getGlobalOffset; }
             struct typeRecord *t = s->u.c.typ;
 
             e->resultType = newTypeRecord(classDefType);
