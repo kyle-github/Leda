@@ -280,6 +280,17 @@ add_test(NAME tier1_primitives_test
         -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/tier1_primitives_test.golden.txt
         -DRUN_VM=ON
         -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
+add_test(NAME real_primitives_test
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=real_primitives_test
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DLEDAC_PATH=$<TARGET_FILE:ledac>
+        -DLBCDUMP_PATH=$<TARGET_FILE:lbcdump>
+        -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+        -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/real_primitives_fixture.led
+        -DEXPECTED_PATH=${CMAKE_SOURCE_DIR}/Test/real_primitives_test.golden.txt
+        -DRUN_VM=ON
+        -P ${CMAKE_SOURCE_DIR}/Test/run_bytecode_test.cmake)
 add_test(NAME pattern_match_test
     COMMAND ${CMAKE_COMMAND}
         -DTEST_NAME=pattern_match_test

@@ -41,6 +41,11 @@ struct bc_call_state {
     size_t count;
 };
 
+static int bc_function_is_top_level(struct bc_compile_context *context, struct bc_function *function) {
+    return context != NULL && context->module != NULL && function != NULL && context->module->function_count > 0
+           && function == &context->module->functions[context->module->entry_function];
+}
+
 static int bc_compile_expression(struct bc_compile_context *context, struct expressionRecord *expression,
                                  struct bc_function *function, struct bc_call_state *call_state, char *error_buffer,
                                  size_t error_buffer_size);
@@ -80,6 +85,11 @@ static int bc_emit_const_index(struct bc_function *function, size_t constant_ind
 
     if(function->max_stack < 1u) { function->max_stack = 1u; }
     return 1;
+}
+
+static int bc_depth0_function_local_is_outer_slot(struct bc_compile_context *context, struct bc_function *function,
+                                                  uint64_t depth, uint64_t slot) {
+    return depth == 0 && !bc_function_is_top_level(context, function) && function != NULL && slot >= function->local_count;
 }
 
 static uint32_t bc_arity_from_type(struct typeRecord *type) {
@@ -383,8 +393,8 @@ static int bc_call_state_lookup(const struct bc_call_state *call_state, const st
     return 1;
 }
 
-static int bc_resolve_slot_ref_from_expression(struct bc_function *function, struct expressionRecord *expression,
-                                               struct bc_slot_ref *ref) {
+static int bc_resolve_slot_ref_from_expression(struct bc_compile_context *context, struct bc_function *function,
+                                               struct expressionRecord *expression, struct bc_slot_ref *ref) {
     uint64_t depth;
     uint64_t slot;
 
@@ -399,6 +409,10 @@ static int bc_resolve_slot_ref_from_expression(struct bc_function *function, str
     if(bc_match_function_local_slot_with_depth(expression, &depth, &slot)) {
         ref->kind = depth == 0 ? BC_SLOT_REF_LOCAL : BC_SLOT_REF_CAPTURE_LOCAL;
         ref->depth = depth;
+        if(bc_depth0_function_local_is_outer_slot(context, function, depth, slot)) {
+            ref->kind = BC_SLOT_REF_CAPTURE_LOCAL;
+            ref->depth = 1;
+        }
         ref->slot = slot;
         return 1;
     }
@@ -415,6 +429,10 @@ static int bc_resolve_slot_ref_from_expression(struct bc_function *function, str
     if(bc_match_context_local_slot(expression, &depth, &slot)) {
         ref->kind = depth == 0 ? BC_SLOT_REF_LOCAL : BC_SLOT_REF_CAPTURE_LOCAL;
         ref->depth = depth;
+        if(depth == 0 && !bc_function_is_top_level(context, function)) {
+            ref->kind = BC_SLOT_REF_CAPTURE_LOCAL;
+            ref->depth = 1;
+        }
         ref->slot = slot;
         return 1;
     }
@@ -434,6 +452,10 @@ static int bc_resolve_slot_ref_from_expression(struct bc_function *function, str
 
     if(expression->u.o.base != NULL && expression->u.o.base->operator== getCurrentContext && expression->u.o.location >= 0) {
         ref->kind = BC_SLOT_REF_LOCAL;
+        if(function != NULL && function->name != NULL && strcmp(function->name, "__top__") != 0) {
+            ref->kind = BC_SLOT_REF_CAPTURE_LOCAL;
+            ref->depth = 1;
+        }
         ref->slot = (uint64_t)expression->u.o.location;
         return 1;
     }
@@ -441,8 +463,8 @@ static int bc_resolve_slot_ref_from_expression(struct bc_function *function, str
     return 0;
 }
 
-static int bc_resolve_slot_ref_from_assignment_target(struct bc_function *function, struct expressionRecord *target,
-                                                      struct bc_slot_ref *ref) {
+static int bc_resolve_slot_ref_from_assignment_target(struct bc_compile_context *context, struct bc_function *function,
+                                                      struct expressionRecord *target, struct bc_slot_ref *ref) {
     enum instructions target_operator;
     struct expressionRecord *target_base;
     int target_location;
@@ -461,6 +483,11 @@ static int bc_resolve_slot_ref_from_assignment_target(struct bc_function *functi
        || bc_match_context_local_slot_core(target_base, target_location, &depth, &slot)) {
         ref->kind = depth == 0 ? BC_SLOT_REF_LOCAL : BC_SLOT_REF_CAPTURE_LOCAL;
         ref->depth = depth;
+        if(bc_depth0_function_local_is_outer_slot(context, function, depth, slot)
+           || (depth == 0 && !bc_function_is_top_level(context, function))) {
+            ref->kind = BC_SLOT_REF_CAPTURE_LOCAL;
+            ref->depth = 1;
+        }
         ref->slot = slot;
         return 1;
     }
@@ -478,6 +505,14 @@ static int bc_resolve_slot_ref_from_assignment_target(struct bc_function *functi
        || ((target_base != NULL && target_base->operator== getCurrentContext && target_location >= 0)
            && (slot = (uint64_t)target_location, 1))) {
         ref->kind = BC_SLOT_REF_LOCAL;
+        if(target_base != NULL
+           && target_base->
+                  operator== getCurrentContext && target_location >= 0 && function != NULL && function->name != NULL && strcmp(
+                      function->name, "__top__")
+                  != 0) {
+            ref->kind = BC_SLOT_REF_CAPTURE_LOCAL;
+            ref->depth = 1;
+        }
         ref->slot = slot;
         return 1;
     }
@@ -747,19 +782,19 @@ static int bc_match_direct_call_target(struct bc_compile_context *context, struc
                                                                 error_buffer, error_buffer_size);
 
     if(literal_status != 0) { return literal_status; }
-    if(!bc_resolve_slot_ref_from_expression(function, callee_expression, &ref)) { return 0; }
+    if(!bc_resolve_slot_ref_from_expression(context, function, callee_expression, &ref)) { return 0; }
     if(bc_call_state_lookup(call_state, &ref, function_index, context_depth)) { return 1; }
     return 0;
 }
 
 static int bc_builtin_class_tag(struct typeRecord *t) {
-    if(t == NULL) return -1;
-    if(t == integerType) return 0;
-    if(t == stringType) return 1;
-    if(t == booleanType) return 2;
-    if(t == realType) return 3;
-    if(t == trueType) return 4;
-    if(t == falseType) return 5;
+    if(t == NULL) { return -1; }
+    if(t == integerType) { return 0; }
+    if(t == stringType) { return 1; }
+    if(t == booleanType) { return 2; }
+    if(t == realType) { return 3; }
+    if(t == trueType) { return 4; }
+    if(t == falseType) { return 5; }
     return -1;
 }
 
@@ -807,7 +842,7 @@ static int bc_update_known_call_state_after_assignment(struct bc_compile_context
     uint64_t context_depth;
     int literal_status;
 
-    if(call_state == NULL || !bc_resolve_slot_ref_from_assignment_target(function, target, &ref)) { return 1; }
+    if(call_state == NULL || !bc_resolve_slot_ref_from_assignment_target(context, function, target, &ref)) { return 1; }
 
     literal_status =
         bc_match_direct_closure_literal_target(context, right, &function_index, &context_depth, error_buffer, error_buffer_size);
@@ -821,8 +856,8 @@ static int bc_update_known_call_state_after_assignment(struct bc_compile_context
     return 1;
 }
 
-static int bc_compile_assignment_target(struct expressionRecord *target, struct bc_function *function, char *error_buffer,
-                                        size_t error_buffer_size) {
+static int bc_compile_assignment_target(struct bc_compile_context *context, struct expressionRecord *target,
+                                        struct bc_function *function, char *error_buffer, size_t error_buffer_size) {
     enum instructions target_operator;
     struct expressionRecord *target_base;
     int target_location;
@@ -834,6 +869,10 @@ static int bc_compile_assignment_target(struct expressionRecord *target, struct 
     }
 
     if(bc_match_function_local_slot_with_depth_core(target_base, target_location, &depth, &slot)) {
+        if(bc_depth0_function_local_is_outer_slot(context, function, depth, slot)) {
+            return bc_emit_capture_slot_store(function, BC_OP_STORE_CAPTURE_LOCAL, 1, slot, error_buffer, error_buffer_size,
+                                              "unable to emit captured outer-context store");
+        }
         if(depth == 0) {
             return bc_emit_slot_store(function, BC_OP_STORE_LOCAL, slot, error_buffer, error_buffer_size,
                                       "unable to emit local store");
@@ -855,6 +894,10 @@ static int bc_compile_assignment_target(struct expressionRecord *target, struct 
     }
 
     if(bc_match_context_local_slot_core(target_base, target_location, &depth, &slot)) {
+        if(depth == 0 && !bc_function_is_top_level(context, function)) {
+            return bc_emit_capture_slot_store(function, BC_OP_STORE_CAPTURE_LOCAL, 1, slot, error_buffer, error_buffer_size,
+                                              "unable to emit captured context store");
+        }
         if(depth == 0) {
             return bc_emit_slot_store(function, BC_OP_STORE_LOCAL, slot, error_buffer, error_buffer_size,
                                       "unable to emit local store");
@@ -866,6 +909,14 @@ static int bc_compile_assignment_target(struct expressionRecord *target, struct 
     if(bc_match_function_local_slot_core(target_base, target_location, &slot)
        || ((target_base != NULL && target_base->operator== getCurrentContext && target_location >= 0)
            && (slot = (uint64_t)target_location, 1))) {
+        if(target_base != NULL
+           && target_base->
+                  operator== getCurrentContext && target_location >= 0 && function != NULL && function->name != NULL && strcmp(
+                      function->name, "__top__")
+                  != 0) {
+            return bc_emit_capture_slot_store(function, BC_OP_STORE_CAPTURE_LOCAL, 1, slot, error_buffer, error_buffer_size,
+                                              "unable to emit captured context store");
+        }
         return bc_emit_slot_store(function, BC_OP_STORE_LOCAL, slot, error_buffer, error_buffer_size,
                                   "unable to emit local store");
     }
@@ -880,12 +931,12 @@ static int bc_compile_assignment_target(struct expressionRecord *target, struct 
     return 0;
 }
 
-static int bc_assignment_target_is_object_slot(struct bc_function *function, struct expressionRecord *target,
-                                               struct expressionRecord **base, int *location) {
+static int bc_assignment_target_is_object_slot(struct bc_compile_context *context, struct bc_function *function,
+                                               struct expressionRecord *target, struct expressionRecord **base, int *location) {
     enum instructions target_operator;
     struct bc_slot_ref ref;
 
-    if(bc_resolve_slot_ref_from_assignment_target(function, target, &ref)) { return 0; }
+    if(bc_resolve_slot_ref_from_assignment_target(context, function, target, &ref)) { return 0; }
     if(!bc_reference_target_parts(target, &target_operator, base, location)) { return 0; }
     return target_operator == getOffset && *base != NULL && *location >= 0;
 }
@@ -903,6 +954,10 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
         case getOffset:
         case getGlobalOffset:
             if(bc_match_function_local_slot_with_depth(expression, &depth, &slot)) {
+                if(bc_depth0_function_local_is_outer_slot(context, function, depth, slot)) {
+                    return bc_emit_capture_slot_load(function, BC_OP_LOAD_CAPTURE_LOCAL, 1, slot, error_buffer, error_buffer_size,
+                                                     "unable to emit captured outer-context load");
+                }
                 if(depth == 0) {
                     return bc_emit_slot_load(function, BC_OP_LOAD_LOCAL, slot, error_buffer, error_buffer_size,
                                              "unable to emit local load");
@@ -922,6 +977,10 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                 }
             }
             if(bc_match_context_local_slot(expression, &depth, &slot)) {
+                if(depth == 0 && !bc_function_is_top_level(context, function)) {
+                    return bc_emit_capture_slot_load(function, BC_OP_LOAD_CAPTURE_LOCAL, 1, slot, error_buffer, error_buffer_size,
+                                                     "unable to emit captured context load");
+                }
                 if(depth == 0) {
                     return bc_emit_slot_load(function, BC_OP_LOAD_LOCAL, slot, error_buffer, error_buffer_size,
                                              "unable to emit slot load");
@@ -940,6 +999,10 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
             }
             if(expression->u.o.base != NULL
                && expression->u.o.base->operator== getCurrentContext && expression->u.o.location >= 0) {
+                if(!bc_function_is_top_level(context, function)) {
+                    return bc_emit_capture_slot_load(function, BC_OP_LOAD_CAPTURE_LOCAL, 1, (uint64_t)expression->u.o.location,
+                                                     error_buffer, error_buffer_size, "unable to emit captured context load");
+                }
                 return bc_emit_slot_load(function, BC_OP_LOAD_LOCAL, (uint64_t)expression->u.o.location, error_buffer,
                                          error_buffer_size, "unable to emit slot load");
             }
@@ -988,7 +1051,7 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
             struct expressionRecord *object_base;
             int object_location;
 
-            if(bc_assignment_target_is_object_slot(function, expression->u.a.left, &object_base, &object_location)) {
+            if(bc_assignment_target_is_object_slot(context, function, expression->u.a.left, &object_base, &object_location)) {
                 if(!bc_compile_expression(context, expression->u.a.right, function, call_state, error_buffer,
                                           error_buffer_size)) {
                     return 0;
@@ -1005,7 +1068,9 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                                           error_buffer_size)) {
                     return 0;
                 }
-                if(!bc_compile_assignment_target(expression->u.a.left, function, error_buffer, error_buffer_size)) { return 0; }
+                if(!bc_compile_assignment_target(context, expression->u.a.left, function, error_buffer, error_buffer_size)) {
+                    return 0;
+                }
                 /* After STORE (which leaves value on stack), register builtin class tables */
                 {
                     struct expressionRecord *rhs = expression->u.a.right;
@@ -1044,8 +1109,8 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
             struct expressionRecord *object_base;
             int object_location;
 
-            if(!bc_resolve_slot_ref_from_assignment_target(function, expression, &ref)) {
-                if(!bc_assignment_target_is_object_slot(function, expression, &object_base, &object_location)) {
+            if(!bc_resolve_slot_ref_from_assignment_target(context, function, expression, &ref)) {
+                if(!bc_assignment_target_is_object_slot(context, function, expression, &object_base, &object_location)) {
                     bc_set_error(error_buffer, error_buffer_size,
                                  "only slot references are supported in makeReference bytecode lowering");
                     return 0;
@@ -1237,8 +1302,8 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                     bc_set_error(error_buffer, error_buffer_size, "unable to emit LOAD_OBJECT_SLOT for pattern field");
                     return 0;
                 }
-                if(!bc_compile_assignment_target((struct expressionRecord *)arg->value, function, error_buffer,
-                                                  error_buffer_size)) {
+                if(!bc_compile_assignment_target(context, (struct expressionRecord *)arg->value, function, error_buffer,
+                                                 error_buffer_size)) {
                     return 0;
                 }
                 if(!bc_emit_opcode(function, BC_OP_POP)) {

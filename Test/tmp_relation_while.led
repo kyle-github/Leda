@@ -1,0 +1,11 @@
+include "std.led";
+
+var
+    done : boolean;
+begin
+    done := false;
+    while booleanAsRelation(~done) do begin
+        print("while\n");
+        done := true;
+    end;
+end;

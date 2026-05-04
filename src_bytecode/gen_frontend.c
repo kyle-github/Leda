@@ -167,6 +167,21 @@ struct statementRecord *genBody(struct symbolTableRecord *syms, struct statement
 
     for(struct list *p = syms->firstSymbol; p; p = p->next) {
         struct symbolRecord *sym = (struct symbolRecord *)p->value;
+        if(sym->styp == varSymbol && (strcmp(sym->name, "true") == 0 || strcmp(sym->name, "false") == 0)) {
+            struct expressionRecord *target = genOffset(base, sym->u.v.location, 0, sym->u.v.typ);
+            struct expressionRecord *class_value =
+                lookupIdentifier(syms, strcmp(sym->name, "true") == 0 ? newString("True") : newString("False"));
+            struct statementRecord *st;
+
+            if(class_value == 0) { continue; }
+            st = genAssignmentStatement(target, generateFunctionCall(syms, class_value, 0, 1));
+            st->next = code;
+            code = st;
+        }
+    }
+
+    for(struct list *p = syms->firstSymbol; p; p = p->next) {
+        struct symbolRecord *sym = (struct symbolRecord *)p->value;
         if(sym->styp == classDefSymbol) {
             struct expressionRecord *target = genOffset(base, sym->u.c.location, 0, 0);
             struct expressionRecord *value = genClassTableLiteral(sym);

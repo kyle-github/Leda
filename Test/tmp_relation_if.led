@@ -1,0 +1,6 @@
+include "std.led";
+
+begin
+    if booleanAsRelation(true) then
+        print("if\n");
+end;

@@ -1,0 +1,6 @@
+include "std.led";
+
+begin
+    for booleanAsRelation(true) do
+        print("for\n");
+end;
