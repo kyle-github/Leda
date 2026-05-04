@@ -76,6 +76,7 @@ static const char *op_name(enum bc_opcode opcode) {
         case BC_OP_MAKE_REF_OBJECT_SLOT: return "MAKE_REF_OBJECT_SLOT";
         case BC_OP_MAKE_METHOD: return "MAKE_METHOD";
         case BC_OP_BR_IF_NOT_KIND: return "BR_IF_NOT_KIND";
+        case BC_OP_REGISTER_BUILTIN: return "REGISTER_BUILTIN";
     }
     return "<unknown>";
 }
@@ -159,6 +160,12 @@ static int print_instruction(const struct bc_module *module, const struct bc_fun
             if(!read_u64(fn, ip, &index)) { return 0; }
             printf(" %" PRIu64, index);
             print_const_ref(module, index);
+            break;
+        }
+        case BC_OP_REGISTER_BUILTIN: {
+            uint64_t tag;
+            if(!read_u64(fn, ip, &tag)) { return 0; }
+            printf(" %" PRIu64, tag);
             break;
         }
         case BC_OP_JUMP:

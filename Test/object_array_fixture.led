@@ -1,0 +1,22 @@
+include "std.led";
+
+class Widget; var value : integer; end;
+
+var w : Widget;
+var data : object;
+var i : integer;
+
+begin
+    w := Widget(99);
+    print(w.asString());
+    print("\n");
+    data := cfunction Leda_object_allocate(3)->object;
+    cfunction Leda_object_atPut(data, 0, 10);
+    cfunction Leda_object_atPut(data, 1, 20);
+    i := cfunction Leda_object_at(data, 0)->integer;
+    print(i);
+    print("\n");
+    i := cfunction Leda_object_at(data, 1)->integer;
+    print(i);
+    print("\n");
+end;

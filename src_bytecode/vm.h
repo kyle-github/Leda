@@ -8,7 +8,7 @@
 #define BC_VM_MAX_FRAMES 64u
 #define BC_VM_MAX_ENVIRONMENTS 128u
 #define BC_VM_MAX_ENV_SLOTS 1024u
-#define BC_VM_MAX_RUNTIME_CONSTANTS 256u
+#define BC_VM_MAX_RUNTIME_CONSTANTS 65536u
 
 struct bc_environment {
     size_t parent_env_index;
@@ -17,6 +17,7 @@ struct bc_environment {
     uint32_t arg_count;
     uint32_t local_count;
     struct bc_constant *object;
+    struct bc_constant *self;
 };
 
 struct bc_frame {
@@ -32,8 +33,17 @@ struct bc_frame {
     uint32_t local_count;
 };
 
+#define BC_BUILTIN_INTEGER 0u
+#define BC_BUILTIN_STRING  1u
+#define BC_BUILTIN_BOOLEAN 2u
+#define BC_BUILTIN_REAL    3u
+#define BC_BUILTIN_TRUE    4u
+#define BC_BUILTIN_FALSE   5u
+#define BC_BUILTIN_COUNT   6u
+
 struct bc_vm {
     struct bc_module *module;
+    struct bc_constant *builtin_class_tables[BC_BUILTIN_COUNT];
     struct bc_constant *stack[BC_VM_MAX_STACK];
     size_t stack_size;
     struct bc_constant *frame_slots[BC_VM_MAX_FRAME_SLOTS];

@@ -1,0 +1,7 @@
+include "std.led";
+var s : string; sub : string;
+begin
+    s := "hello world";
+    sub := s.subString(0, 5);
+    sub.print();
+end;

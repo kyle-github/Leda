@@ -1,0 +1,5 @@
+REGISTER_BUILTIN
+Leda_string_print
+Leda_string_concat
+Leda_integer_asString
+Leda_string_compare

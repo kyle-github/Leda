@@ -383,6 +383,7 @@ static struct expressionRecord *genClassTableLiteral(struct symbolRecord *class_
     for(slot_index = 2; slot_index < class_symbols->u.c.methodTableSize; ++slot_index) {
         slot_values[slot_index] = integerConstant(0);
     }
+    slot_values[2] = stringConstant(class_symbol->name);
 
     for(struct list *p = class_symbols->u.c.methodTable; p; p = p->next) {
         struct symbolRecord *method_symbol = (struct symbolRecord *)p->value;

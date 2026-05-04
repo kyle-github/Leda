@@ -1,0 +1,3 @@
+Leda_object_allocate
+Leda_object_at
+Leda_object_atPut

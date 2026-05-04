@@ -45,19 +45,19 @@ The resulting toolchain should consist of:
 
 ## Status Snapshot
 
-This document began as a design and migration plan. As of May 2, 2026, it also serves as an implementation status report for the code under `src_bytecode/`.
+This document began as a design and migration plan. As of May 3, 2026, it also serves as an implementation status report for the code under `src_bytecode/`.
 
 The short version is:
 
 - the bytecode toolchain exists and builds as three executables: `ledac`, `ledavm`, and `lbcdump`
 - the portable module format is implemented and round-trippable
 - the compiler backend lowers a meaningful slice of the Leda AST to bytecode
-- the VM executes that slice, including closures, captured variables, references, object construction, and object slot access
+- the VM executes that slice, including closures, captured variables, references, object construction, object slot access, method calls, and pattern matching
 - narrow bytecode regressions are wired into CTest and have been the main driver for development
-- method support is under active implementation and is the main remaining blocker before broader library and regression-suite parity
-- `patternMatch` is still not implemented in the bytecode compiler or VM
+- all 14 bytecode regressions are currently green
+- the main remaining blocker before broader library and regression-suite parity is primitive coverage: real arithmetic and string manipulation primitives are not yet implemented
 
-The current implementation is therefore no longer a stub or architecture sketch. It is a working bytecode compiler and VM for a non-trivial subset of the language, with several advanced runtime features already present.
+The current implementation is therefore no longer a stub or architecture sketch. It is a working bytecode compiler and VM for a non-trivial subset of the language, with closures, methods, references, pattern matching, and a meaningful subset of the standard-library primitives already present.
 
 ### What is implemented today
 
@@ -122,9 +122,11 @@ The compiler backend in `bc_emit.c` is no longer limited to trivial constants. T
 - `evalReference`
 - `buildInstance`
 - object slot loads, stores, and reference creation
-- initial `makeMethodContext` lowering
+- `makeMethodContext` lowering
 - compatibility lowering for `tailCall` statements as ordinary returns
 - compatibility lowering for `evalThunk` as a zero-argument closure call
+- `patternMatch` lowering via `BC_OP_BR_IF_NOT_KIND` with field-binding sequences
+- `BC_OP_REGISTER_BUILTIN` emission for builtin class table registration after class construction
 
 This list matters because it shows that the bytecode backend has already moved past the "simple statements only" stage. The compiler now handles several of the runtime-model features that originally looked like later-phase work.
 
@@ -148,16 +150,24 @@ Implemented runtime areas include:
 - object allocation for `buildInstance`
 - object slot reads and writes
 - object-slot reference creation
-- environment-reference support used by the in-progress method implementation
-- initial method binding through `BC_OP_MAKE_METHOD`
+- method binding through `BC_OP_MAKE_METHOD`
+- method execution with `self` pre-populated at local slot 1
+- primitive receiver dispatch via `builtin_class_tables` registry and `vm_bind_primitive_environment`
+- `BC_OP_BR_IF_NOT_KIND`: class-chain walk for `is` pattern matching, with field binding and true/false push
+- `BC_OP_REGISTER_BUILTIN`: registers integer, string, boolean, and real class tables for primitive method dispatch
+- raw object allocation, indexed slot read, and indexed slot write via primitives 15/16/17
+- Tier 1 primitives: `Leda_object_equals` (0), `Leda_string_compare` (1), `Leda_string_print` (2), `Leda_string_concat` (3), `Leda_integer_asString` (9)
+- all integer arithmetic and logic primitives: equals (4), plus/minus/times/divide (5–8), less (10), or/and/not (11–13), `Leda_object_defined` (22)
+- `Leda_object_allocate` (15), `Leda_object_at` (16), `Leda_object_atPut` (17)
+- class table slot 2 is now populated with the class name string during compilation, enabling `object.asString()` for user-defined classes
 
-The VM is therefore already executing code that depends on lexical capture, mutation through references, and instance-slot indirection. That is materially beyond a "toy VM" stage.
+The VM is therefore already executing code that depends on lexical capture, mutation through references, instance-slot indirection, method dispatch on both objects and primitive values, and `is` pattern matching. That is materially beyond a "toy VM" stage.
 
 ### What has been validated
 
 The currently validated bytecode slices are the ones covered by the narrow CTest regressions.
 
-The following tests have already been green together during this implementation cycle:
+The following tests are all currently green:
 
 - `lbcdump_test`
 - `direct_call_test`
@@ -167,41 +177,43 @@ The following tests have already been green together during this implementation 
 - `eval_reference_test`
 - `build_instance_test`
 - `object_slot_access_test`
+- `method_context_test`
 - `nested_direct_call_test`
+- `tier1_primitives_test`
+- `pattern_match_test`
 - `indirect_call_test`
+- `object_array_test`
 
 Those tests cover both bytecode shape and runtime behavior, depending on the fixture. In other words, the current bytecode system is not just compiling without crashing; it is executing real Leda programs correctly for those covered features.
-
-### What is only partially implemented
-
-The main incomplete area is method support.
-
-What is already present for methods:
-
-- `BC_OP_MAKE_METHOD` exists in the opcode set
-- the VM has runtime support for binding a method closure to an object-backed environment
-- the object model now stores the extra environment information needed for method execution
-- the frontend has begun synthesizing class-table literals so methods can become real bytecode closures instead of remaining legacy runtime stubs
-- a dedicated narrow regression, `method_context_test`, exists in CTest
-
-What is not complete yet:
-
-- the emitted module does not yet contain the expected user-defined method closure for the current method fixture
-- class-table materialization is producing a much larger method population from the standard library, but the specific user method being targeted is still missing from the compiled module
-- because of that, method parity is not yet established and the `method_context_test` fixture remains red
-
-This is a genuine implementation gap, not just a missing assertion update.
-
-The other clearly known missing feature is `patternMatch`. That operator still does not have bytecode lowering or VM execution support.
 
 ### What remains before broader parity
 
 The remaining work should be understood as feature completion, not project bootstrap.
 
-The biggest remaining items are:
+There are no known red regressions. The main work is expanding primitive coverage and widening test coverage toward the legacy chapter regression corpus.
 
-- finish method compilation and execution semantics
-- implement `patternMatch`
+The unimplemented primitives and their chapter impact:
+
+**Tier B — real arithmetic (blocks chapters 11, 14, 15a, 15c, 16)**
+
+- 14: `Leda_integer_asReal`
+- 23: `Leda_real_asString`
+- 24–28: `Leda_real_plus`, `Leda_real_minus`, `Leda_real_times`, `Leda_real_divide`, `Leda_real_less`
+- 29: `Leda_real_asInteger`
+- 30: `Leda_real_equals`
+
+**Tier C — string manipulation and I/O (blocks chapters 8c, 17)**
+
+- 19: `Leda_string_length`
+- 20: `Leda_string_substring`
+- 21: `Leda_stdin_read`
+
+**Tier D — generics support**
+
+- 18: `Leda_object_cast` — used by `typeTest()` in generic type coercion
+
+Beyond primitives, the remaining work is:
+
 - expand coverage from narrow focused fixtures to more of the legacy regression corpus through `ledac` plus `ledavm`
 - continue checking that standard-library initialization paths behave correctly when class tables and methods are created through bytecode-visible objects rather than legacy interpreter-only runtime helpers
 
@@ -1900,18 +1912,23 @@ This phase has been validated repeatedly through the narrow bytecode tests and i
 
 ### Phase 4: primitive support
 
-Status: partially complete but functionally sufficient for the current validated slice.
+Status: partially complete. Core integer, string, and object primitives are done. Real arithmetic and string manipulation remain.
 
 Completed work:
 
 - primitive-call lowering exists
 - VM primitive dispatch exists
-- current narrow fixtures and standard-library setup paths rely on that primitive mechanism successfully
+- `BC_OP_REGISTER_BUILTIN` and `builtin_class_tables` registry enables primitive method dispatch on integer, string, boolean, and real values
+- Tier 1 string and object equality primitives: 0, 1, 2, 3, 9
+- All integer arithmetic and logic: 4–13
+- Object array primitives: 15, 16, 17
+- `Leda_object_defined`: 22
 
 Still needed:
 
-- broader confirmation that all primitives used by the legacy regression suite behave identically under the VM
-- continued parity work as more of the standard library executes through bytecode
+- Tier B: real arithmetic — primitives 14, 23–30
+- Tier C: string manipulation and stdin — primitives 19, 20, 21
+- Tier D: `Leda_object_cast` — primitive 18
 
 ### Phase 5: closures and lexical capture
 
@@ -1930,40 +1947,38 @@ The main remaining risk here is not basic closure mechanics. The remaining risk 
 
 ### Phase 6: methods classes and instances
 
-Status: partially complete.
+Status: complete for the core object model and user-defined methods. Primitive receiver dispatch is also working.
 
 Completed work:
 
 - instance construction via `buildInstance` works
 - object slot access works
 - object-slot references work
-- initial method-binding opcode and runtime support exist
-- class-table materialization has begun in the frontend
-- object-backed method environments exist in the VM
-- dedicated method regression coverage exists
-
-Not complete:
-
-- user-defined methods are not yet consistently materialized as bytecode closures in the compiled module
-- method regression still fails
-- class-table and method-table conventions are not yet fully validated against the existing standard library and user classes
-
-This is the current frontier of the implementation.
+- method-binding opcode and runtime support complete
+- class-table materialization working in the frontend, including parent-chain wiring at slot 4
+- class name strings now stored at slot 2 of class tables, enabling `object.asString()`
+- object-backed method environments and self pre-population at local slot 1
+- primitive receiver dispatch via `vm_bind_primitive_environment` and `builtin_class_tables`
+- `method_context_test` is green
+- `BC_OP_BR_IF_NOT_KIND` implements `is` pattern matching with class-chain walk
+- `pattern_match_test` validates parent-chain traversal and is green
 
 ### Phase 7: references pattern matching relations
 
-Status: mixed.
+Status: references and pattern matching are complete. Relation-heavy coverage not yet re-established.
 
 Completed work:
 
 - by-reference support is implemented for the current bytecode slice
 - reference creation and dereference are implemented and tested
 - comma-expression support needed by by-reference lowering is implemented and tested
+- `patternMatch` is implemented via `BC_OP_BR_IF_NOT_KIND` with DUP/LOAD_OBJECT_SLOT/STORE field-binding sequences
+- parent class chain traversal works for `is` checks against ancestor classes
 
 Not complete:
 
-- `patternMatch` is still missing
 - relation-heavy coverage has not yet been re-established under `ledavm`
+- the `Leda_forRelation` and relation library paths have not been exercised through bytecode
 
 ### Phase 8: parity and retirement
 
@@ -2034,11 +2049,17 @@ The current bytecode-specific tests in `CMakeLists.txt` are:
 - `object_slot_access_test`
   - validates object slot load, store, and reference behavior through the VM
 - `method_context_test`
-  - dedicated in-progress regression for method binding and execution
+  - validates method binding and execution including self access and field reads through captured environment
 - `nested_direct_call_test`
   - validates direct-call lowering in nested contexts
+- `tier1_primitives_test`
+  - validates `Leda_string_print`, `Leda_string_concat`, `Leda_integer_asString`, `Leda_string_compare`, `Leda_object_equals`, and the `REGISTER_BUILTIN` mechanism for primitive class tables
+- `pattern_match_test`
+  - validates `BC_OP_BR_IF_NOT_KIND` for `is` pattern matching, including parent-chain traversal and field-binding sequences
 - `indirect_call_test`
   - validates ordinary closure-call fallback when direct resolution is not available
+- `object_array_test`
+  - validates `Leda_object_allocate`, `Leda_object_at`, `Leda_object_atPut`, and `object.asString()` via the class name in slot 2 of class tables
 
 This list is important because it shows the project has moved to behavior-scoped regression coverage rather than relying on manual inspection.
 
@@ -2072,9 +2093,7 @@ That workflow has already caught multiple real regressions, including:
 
 ### Current test status
 
-Current status is not uniformly green.
-
-Green bytecode regressions:
+All 14 bytecode regressions are currently green:
 
 - `lbcdump_test`
 - `direct_call_test`
@@ -2084,24 +2103,14 @@ Green bytecode regressions:
 - `eval_reference_test`
 - `build_instance_test`
 - `object_slot_access_test`
-- `nested_direct_call_test`
-- `indirect_call_test`
-
-Current red bytecode regression:
-
 - `method_context_test`
-
-The method test is valuable even while failing, because it has already driven several concrete implementation steps:
-
-- `BC_OP_MAKE_METHOD`
-- runtime environment references
-- object-backed method environments
-- frontend class-table synthesis
-- compatibility lowering for method-adjacent AST forms encountered in method bodies
+- `nested_direct_call_test`
+- `tier1_primitives_test`
+- `pattern_match_test`
+- `indirect_call_test`
+- `object_array_test`
 
 ### Recommended ongoing testing order
-
-Until method support and pattern matching are finished, the practical order remains:
 
 1. run the narrow feature-specific bytecode test that corresponds to the code being changed
 2. rerun the rest of the existing bytecode regressions
@@ -2145,13 +2154,14 @@ The implementation now supports far more than the original first milestone targe
 - object slot access
 - direct-call optimization for several closure-identification cases
 
-The current practical milestone is no longer "get a minimal VM running".
+The current practical milestone is no longer "get a minimal VM running" or "finish methods and pattern matching". Both of those are done.
 
 The current practical milestone is:
 
-- finish method support
-- implement `patternMatch`
-- keep expanding bytecode regression coverage until meaningful subsets of the legacy regression corpus can run through `ledac` plus `ledavm`
+- implement Tier B real arithmetic primitives (14, 23–30) to unblock 5 chapter tests
+- implement Tier C string and stdin primitives (19, 20, 21) to unblock 2 more chapter tests
+- implement Tier D `Leda_object_cast` (18) for generic type coercion
+- begin running legacy chapter regression fixtures through `ledac` plus `ledavm` and tracking which pass
 
 The right first success condition is:
 

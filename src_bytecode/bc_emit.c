@@ -752,6 +752,17 @@ static int bc_match_direct_call_target(struct bc_compile_context *context, struc
     return 0;
 }
 
+static int bc_builtin_class_tag(struct typeRecord *t) {
+    if(t == NULL) return -1;
+    if(t == integerType) return 0;
+    if(t == stringType) return 1;
+    if(t == booleanType) return 2;
+    if(t == realType) return 3;
+    if(t == trueType) return 4;
+    if(t == falseType) return 5;
+    return -1;
+}
+
 static int bc_expression_produces_value(struct expressionRecord *expression) {
     if(expression == NULL) { return 0; }
 
@@ -995,6 +1006,20 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                     return 0;
                 }
                 if(!bc_compile_assignment_target(expression->u.a.left, function, error_buffer, error_buffer_size)) { return 0; }
+                /* After STORE (which leaves value on stack), register builtin class tables */
+                {
+                    struct expressionRecord *rhs = expression->u.a.right;
+                    if(rhs != NULL && rhs->operator== buildInstance && rhs->resultType != NULL) {
+                        int builtin_tag = bc_builtin_class_tag(rhs->resultType);
+                        if(builtin_tag >= 0) {
+                            if(!bc_emit_opcode(function, BC_OP_REGISTER_BUILTIN)
+                               || !bc_emit_u64le(function, (uint64_t)builtin_tag)) {
+                                bc_set_error(error_buffer, error_buffer_size, "unable to emit REGISTER_BUILTIN");
+                                return 0;
+                            }
+                        }
+                    }
+                }
             }
         }
             if(!bc_emit_opcode(function, BC_OP_POP)) {

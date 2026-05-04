@@ -1,0 +1,42 @@
+include "std.led";
+
+var
+    a, b, c : real;
+    s : string;
+    n : integer;
+    sub : string;
+
+begin
+    a := 3.5;
+    b := 2.0;
+    c := a + b;
+    print(c.asString());
+    print("\n");
+    c := a * b;
+    print(c.asString());
+    print("\n");
+    c := a - b;
+    print(c.asString());
+    print("\n");
+    c := a / b;
+    print(c.asString());
+    print("\n");
+    if a < b then print("yes\n") else print("no\n");
+    if b < a then print("yes\n") else print("no\n");
+    n := a.asInteger();
+    print(n);
+    print("\n");
+    c := n.asReal();
+    print(c.asString());
+    print("\n");
+    s := "hello world";
+    n := s.length();
+    print(n);
+    print("\n");
+    sub := s.subString(0, 5);
+    print(sub);
+    print("\n");
+    sub := s.subString(6, 5);
+    print(sub);
+    print("\n");
+end;

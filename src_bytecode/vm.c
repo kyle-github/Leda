@@ -1,5 +1,6 @@
 #include "vm.h"
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -102,7 +103,11 @@ static int vm_resolve_capture_env_index(struct bc_vm *vm, uint64_t depth, size_t
         }
         environment = &vm->environments[resolved_env_index];
         if(environment->parent_env_index == SIZE_MAX) {
-            vm_set_error(error_buffer, error_buffer_size, "capture depth ran past available environments");
+            char msg[128];
+            snprintf(msg, sizeof(msg), "capture depth ran past (fn=%s depth_rem=%llu env=%zu)",
+                     vm_current_frame(vm)->function->name ? vm_current_frame(vm)->function->name : "?",
+                     (unsigned long long)depth, resolved_env_index);
+            vm_set_error(error_buffer, error_buffer_size, msg);
             return 0;
         }
         resolved_env_index = environment->parent_env_index;
@@ -124,6 +129,33 @@ static int vm_resolve_closure_env_index(struct bc_vm *vm, uint64_t context_depth
 static int vm_get_local_slot_ref(struct bc_vm *vm, struct bc_frame *frame, uint64_t local_index, struct bc_constant ***slot_ref,
                                  char *error_buffer, size_t error_buffer_size) {
     if(local_index >= frame->local_count) {
+        /* Thunks/lambdas captured via depth=0 emit LOAD_LOCAL to access outer context slots:
+           slots 0-3 are outer locals, slots 4+ are outer args (arg_slot = local_index - 4). */
+        if(frame->closure_env_index != SIZE_MAX && frame->closure_env_index < vm->environment_count) {
+            struct bc_environment *closure_env = &vm->environments[frame->closure_env_index];
+            if(closure_env->object != NULL) {
+                return vm_get_object_slot_ref(closure_env->object, local_index, slot_ref, error_buffer,
+                                              error_buffer_size);
+            }
+            if(local_index < 4) {
+                if(local_index < closure_env->local_count) {
+                    size_t slot_index = closure_env->local_base + (size_t)local_index;
+                    if(slot_index < BC_VM_MAX_ENV_SLOTS) {
+                        *slot_ref = &vm->env_slots[slot_index];
+                        return 1;
+                    }
+                }
+            } else {
+                size_t arg_slot = (size_t)(local_index - 4);
+                if(arg_slot < closure_env->arg_count) {
+                    size_t slot_index = closure_env->arg_base + arg_slot;
+                    if(slot_index < BC_VM_MAX_ENV_SLOTS) {
+                        *slot_ref = &vm->env_slots[slot_index];
+                        return 1;
+                    }
+                }
+            }
+        }
         vm_set_error(error_buffer, error_buffer_size, "invalid local slot index");
         return 0;
     }
@@ -283,6 +315,59 @@ static struct bc_constant *vm_alloc_runtime_boolean(struct bc_vm *vm, int value,
     return constant;
 }
 
+static struct bc_constant *vm_alloc_runtime_string(struct bc_vm *vm, const char *value, char *error_buffer,
+                                                   size_t error_buffer_size) {
+    struct bc_constant *constant;
+
+    if(vm->runtime_constant_count >= BC_VM_MAX_RUNTIME_CONSTANTS) {
+        vm_set_error(error_buffer, error_buffer_size, "runtime constant storage exhausted");
+        return NULL;
+    }
+
+    constant = &vm->runtime_constants[vm->runtime_constant_count++];
+    constant->kind = BC_CONST_STRING;
+    constant->value.string = strdup(value);
+    if(constant->value.string == NULL) {
+        constant->kind = 0;
+        vm->runtime_constant_count--;
+        vm_set_error(error_buffer, error_buffer_size, "runtime string allocation failed");
+        return NULL;
+    }
+    return constant;
+}
+
+static struct bc_constant *vm_alloc_runtime_real(struct bc_vm *vm, double value, char *error_buffer,
+                                                 size_t error_buffer_size) {
+    struct bc_constant *constant;
+
+    if(vm->runtime_constant_count >= BC_VM_MAX_RUNTIME_CONSTANTS) {
+        vm_set_error(error_buffer, error_buffer_size, "runtime constant storage exhausted");
+        return NULL;
+    }
+
+    constant = &vm->runtime_constants[vm->runtime_constant_count++];
+    constant->kind = BC_CONST_REAL;
+    constant->value.real = value;
+    return constant;
+}
+
+static int vm_extract_real_value(struct bc_constant *value, double *out, char *error_buffer, size_t error_buffer_size) {
+    if(value == NULL) {
+        vm_set_error(error_buffer, error_buffer_size, "real primitive received undefined value");
+        return 0;
+    }
+    if(value->kind == BC_CONST_REAL) {
+        *out = value->value.real;
+        return 1;
+    }
+    if(value->kind == BC_CONST_INTEGER) {
+        *out = (double)value->value.integer;
+        return 1;
+    }
+    vm_set_error(error_buffer, error_buffer_size, "real primitive expects real or integer argument");
+    return 0;
+}
+
 static struct bc_constant *vm_alloc_runtime_function(struct bc_vm *vm, uint64_t function_index, uint64_t parent_env_index,
                                                      char *error_buffer, size_t error_buffer_size) {
     struct bc_constant *constant;
@@ -397,6 +482,44 @@ static int vm_bind_object_environment(struct bc_vm *vm, struct bc_constant *obje
     environment->arg_count = 0;
     environment->local_count = (uint32_t)object->value.object.slot_count;
     environment->object = object;
+    environment->self = object;
+    *env_index = vm->environment_count++;
+    return 1;
+}
+
+static int vm_bind_primitive_environment(struct bc_vm *vm, struct bc_constant *primitive,
+                                         struct bc_constant *class_table, size_t *env_index,
+                                         char *error_buffer, size_t error_buffer_size) {
+    struct bc_environment *environment;
+    struct bc_constant *wrapper;
+
+    if(vm->environment_count >= BC_VM_MAX_ENVIRONMENTS) {
+        vm_set_error(error_buffer, error_buffer_size, "environment storage exhausted");
+        return 0;
+    }
+
+    /* Build a 3-slot wrapper so LOAD_CAPTURE_LOCAL depth=1 slot=2 returns the primitive value */
+    wrapper = vm_alloc_runtime_object(vm, 3, error_buffer, error_buffer_size);
+    if(wrapper == NULL) { return 0; }
+    wrapper->value.object.slots[0] = class_table;
+    wrapper->value.object.slots[1] = NULL;
+    wrapper->value.object.slots[2] = primitive;
+
+    /* Inherit the class table's construction context so depth>1 captures resolve correctly */
+    size_t parent_env = SIZE_MAX;
+    if(class_table != NULL && class_table->kind == BC_CONST_OBJECT
+       && class_table->value.object.slot_count > 1 && class_table->value.object.slots[1] != NULL
+       && class_table->value.object.slots[1]->kind == BC_CONST_ENVREF) {
+        parent_env = (size_t)class_table->value.object.slots[1]->value.env_index;
+    }
+
+    environment = &vm->environments[vm->environment_count];
+    memset(environment, 0, sizeof(*environment));
+    environment->parent_env_index = parent_env;
+    environment->arg_count = 0;
+    environment->local_count = 0;
+    environment->object = wrapper;
+    environment->self = primitive;
     *env_index = vm->environment_count++;
     return 1;
 }
@@ -484,6 +607,125 @@ static int vm_call_primitive(struct bc_vm *vm, uint64_t primitive_index, size_t 
             result = vm_alloc_runtime_integer(vm, ~argv[0]->value.integer, error_buffer, error_buffer_size);
             break;
 
+        case 15: {
+            int64_t n;
+            if(argc != 1 || !vm_validate_integer_primitive_args(argv, 1, error_buffer, error_buffer_size)) { return 0; }
+            n = argv[0]->value.integer;
+            if(n < 0) {
+                vm_set_error(error_buffer, error_buffer_size, "object_allocate: negative size");
+                return 0;
+            }
+            result = vm_alloc_runtime_object(vm, (uint64_t)n, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 16: {
+            struct bc_constant **slot_ref;
+            if(argc != 2) {
+                vm_set_error(error_buffer, error_buffer_size, "object_at expects 2 arguments");
+                return 0;
+            }
+            if(argv[1] == NULL || argv[1]->kind != BC_CONST_INTEGER) {
+                vm_set_error(error_buffer, error_buffer_size, "object_at: index must be integer");
+                return 0;
+            }
+            if(!vm_get_object_slot_ref(argv[0], (uint64_t)argv[1]->value.integer, &slot_ref, error_buffer,
+                                       error_buffer_size)) {
+                return 0;
+            }
+            vm->stack_size -= argc;
+            vm->stack[vm->stack_size++] = *slot_ref;
+            return 1;
+        }
+
+        case 17: {
+            struct bc_constant **slot_ref;
+            if(argc != 3) {
+                vm_set_error(error_buffer, error_buffer_size, "object_atPut expects 3 arguments");
+                return 0;
+            }
+            if(argv[1] == NULL || argv[1]->kind != BC_CONST_INTEGER) {
+                vm_set_error(error_buffer, error_buffer_size, "object_atPut: index must be integer");
+                return 0;
+            }
+            if(!vm_get_object_slot_ref(argv[0], (uint64_t)argv[1]->value.integer, &slot_ref, error_buffer,
+                                       error_buffer_size)) {
+                return 0;
+            }
+            *slot_ref = argv[2];
+            result = vm_alloc_runtime_integer(vm, 0, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 18:
+            if(argc != 1) {
+                vm_set_error(error_buffer, error_buffer_size, "object_cast expects 1 argument");
+                return 0;
+            }
+            vm->stack_size -= argc;
+            vm->stack[vm->stack_size++] = argv[0];
+            return 1;
+
+        case 19:
+            if(argc != 1) {
+                vm_set_error(error_buffer, error_buffer_size, "string_length expects 1 argument");
+                return 0;
+            }
+            if(argv[0] == NULL || argv[0]->kind != BC_CONST_STRING) {
+                vm_set_error(error_buffer, error_buffer_size, "string_length requires a string argument");
+                return 0;
+            }
+            result = vm_alloc_runtime_integer(vm, (int64_t)strlen(argv[0]->value.string), error_buffer, error_buffer_size);
+            break;
+
+        case 20: {
+            int64_t start, len, source_len;
+            char *buffer;
+            if(argc != 3) {
+                vm_set_error(error_buffer, error_buffer_size, "string_substring expects 3 arguments");
+                return 0;
+            }
+            if(argv[0] == NULL || argv[0]->kind != BC_CONST_STRING || argv[1] == NULL
+               || argv[1]->kind != BC_CONST_INTEGER || argv[2] == NULL || argv[2]->kind != BC_CONST_INTEGER) {
+                vm_set_error(error_buffer, error_buffer_size, "string_substring requires (string, integer, integer)");
+                return 0;
+            }
+            start = argv[1]->value.integer;
+            len = argv[2]->value.integer;
+            fprintf(stderr, "DEBUG prim20: str=%s start=%lld len=%lld argc=%zu\n",
+                    argv[0]->value.string, (long long)start, (long long)len, argc);
+            source_len = (int64_t)strlen(argv[0]->value.string);
+            if(start < 0) { start = 0; }
+            if(start > source_len) { start = source_len; }
+            if(len < 0) { len = 0; }
+            if(start + len > source_len) { len = source_len - start; }
+            buffer = (char *)malloc((size_t)len + 1);
+            if(buffer == NULL) {
+                vm_set_error(error_buffer, error_buffer_size, "string_substring allocation failed");
+                return 0;
+            }
+            memcpy(buffer, argv[0]->value.string + start, (size_t)len);
+            buffer[len] = '\0';
+            result = vm_alloc_runtime_string(vm, buffer, error_buffer, error_buffer_size);
+            free(buffer);
+            break;
+        }
+
+        case 21: {
+            char buffer[256];
+            if(argc != 0) {
+                vm_set_error(error_buffer, error_buffer_size, "stdin_read expects 0 arguments");
+                return 0;
+            }
+            if(fgets(buffer, sizeof(buffer), stdin) == NULL) {
+                vm->stack_size -= argc;
+                vm->stack[vm->stack_size++] = NULL;
+                return 1;
+            }
+            result = vm_alloc_runtime_string(vm, buffer, error_buffer, error_buffer_size);
+            break;
+        }
+
         case 22:
             if(argc != 1) {
                 vm_set_error(error_buffer, error_buffer_size, "defined primitive expects one argument");
@@ -491,6 +733,158 @@ static int vm_call_primitive(struct bc_vm *vm, uint64_t primitive_index, size_t 
             }
             result = vm_alloc_runtime_boolean(vm, argv[0] != NULL, error_buffer, error_buffer_size);
             break;
+
+        case 0:
+            if(argc != 2) {
+                vm_set_error(error_buffer, error_buffer_size, "object_equals expects 2 arguments");
+                return 0;
+            }
+            result = vm_alloc_runtime_boolean(vm, argv[0] == argv[1], error_buffer, error_buffer_size);
+            break;
+
+        case 1: {
+            if(argc != 2) {
+                vm_set_error(error_buffer, error_buffer_size, "string_compare expects 2 arguments");
+                return 0;
+            }
+            if(argv[0] == NULL || argv[0]->kind != BC_CONST_STRING || argv[1] == NULL
+               || argv[1]->kind != BC_CONST_STRING) {
+                vm_set_error(error_buffer, error_buffer_size, "string_compare requires string arguments");
+                return 0;
+            }
+            int cmp = strcmp(argv[0]->value.string, argv[1]->value.string);
+            result = vm_alloc_runtime_integer(vm, (int64_t)cmp, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 2:
+            if(argc != 1) {
+                vm_set_error(error_buffer, error_buffer_size, "string_print expects 1 argument");
+                return 0;
+            }
+            if(argv[0] == NULL || argv[0]->kind != BC_CONST_STRING) {
+                vm_set_error(error_buffer, error_buffer_size, "string_print requires a string argument");
+                return 0;
+            }
+            printf("%s", argv[0]->value.string);
+            result = vm_alloc_runtime_integer(vm, 0, error_buffer, error_buffer_size);
+            break;
+
+        case 3: {
+            if(argc != 2) {
+                vm_set_error(error_buffer, error_buffer_size, "string_concat expects 2 arguments");
+                return 0;
+            }
+            if(argv[0] == NULL || argv[0]->kind != BC_CONST_STRING || argv[1] == NULL
+               || argv[1]->kind != BC_CONST_STRING) {
+                vm_set_error(error_buffer, error_buffer_size, "string_concat requires string arguments");
+                return 0;
+            }
+            size_t total_len = strlen(argv[0]->value.string) + strlen(argv[1]->value.string);
+            char *buf = (char *)malloc(total_len + 1);
+            if(buf == NULL) {
+                vm_set_error(error_buffer, error_buffer_size, "string_concat allocation failed");
+                return 0;
+            }
+            strcpy(buf, argv[0]->value.string);
+            strcat(buf, argv[1]->value.string);
+            result = vm_alloc_runtime_string(vm, buf, error_buffer, error_buffer_size);
+            free(buf);
+            break;
+        }
+
+        case 9: {
+            char buf[32];
+            if(argc != 1 || !vm_validate_integer_primitive_args(argv, 1, error_buffer, error_buffer_size)) { return 0; }
+            snprintf(buf, sizeof(buf), "%" PRId64, argv[0]->value.integer);
+            result = vm_alloc_runtime_string(vm, buf, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 14:
+            if(argc != 1 || !vm_validate_integer_primitive_args(argv, 1, error_buffer, error_buffer_size)) { return 0; }
+            result = vm_alloc_runtime_real(vm, (double)argv[0]->value.integer, error_buffer, error_buffer_size);
+            break;
+
+        case 23: {
+            char buf[40];
+            double v;
+            if(argc != 1 || !vm_extract_real_value(argv[0], &v, error_buffer, error_buffer_size)) { return 0; }
+            snprintf(buf, sizeof(buf), "%g", v);
+            result = vm_alloc_runtime_string(vm, buf, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 24: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            result = vm_alloc_runtime_real(vm, a + b, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 25: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            result = vm_alloc_runtime_real(vm, a - b, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 26: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            result = vm_alloc_runtime_real(vm, a * b, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 27: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            if(b == 0.0) {
+                vm_set_error(error_buffer, error_buffer_size, "division by zero in real primitive");
+                return 0;
+            }
+            result = vm_alloc_runtime_real(vm, a / b, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 28: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            result = vm_alloc_runtime_boolean(vm, a < b, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 29: {
+            double v;
+            if(argc != 1 || !vm_extract_real_value(argv[0], &v, error_buffer, error_buffer_size)) { return 0; }
+            result = vm_alloc_runtime_integer(vm, (int64_t)v, error_buffer, error_buffer_size);
+            break;
+        }
+
+        case 30: {
+            double a, b;
+            if(argc != 2 || !vm_extract_real_value(argv[0], &a, error_buffer, error_buffer_size)
+               || !vm_extract_real_value(argv[1], &b, error_buffer, error_buffer_size)) {
+                return 0;
+            }
+            result = vm_alloc_runtime_boolean(vm, a == b, error_buffer, error_buffer_size);
+            break;
+        }
 
         default: vm_set_error(error_buffer, error_buffer_size, "primitive not implemented in VM yet"); return 0;
     }
@@ -557,7 +951,10 @@ static int vm_enter_frame(struct bc_vm *vm, struct bc_function *function, size_t
     }
 
     if(arg_count != function->arity) {
-        vm_set_error(error_buffer, error_buffer_size, "argument count does not match function arity");
+        char msg[128];
+        snprintf(msg, sizeof(msg), "argument count (%zu) does not match arity (%u) for fn=%s",
+                 arg_count, function->arity, function->name ? function->name : "?");
+        vm_set_error(error_buffer, error_buffer_size, msg);
         return 0;
     }
 
@@ -566,9 +963,26 @@ static int vm_enter_frame(struct bc_vm *vm, struct bc_function *function, size_t
         return 0;
     }
 
-    arg_base = vm->stack_size - arg_count;
+    size_t natural_arg_base = vm->stack_size - arg_count;
+    size_t safe_start = 0;
+
+    /* Ensure callee slots don't overlap any currently-active caller slot */
+    if(vm->frame_count > 0) {
+        struct bc_frame *caller = &vm->frames[caller_frame_index];
+        safe_start = caller->local_base + caller->local_count;
+    }
+
+    arg_base = natural_arg_base > safe_start ? natural_arg_base : safe_start;
     local_base = arg_base + arg_count;
-    if(local_base + function->local_count > BC_VM_MAX_FRAME_SLOTS) {
+
+    /* Method frames need local slot 1 for 'self'; ensure at least 2 local slots are reserved */
+    uint32_t effective_local_count = function->local_count;
+    if(closure_env_index != SIZE_MAX && closure_env_index < vm->environment_count
+       && vm->environments[closure_env_index].self != NULL && effective_local_count < 2) {
+        effective_local_count = 2;
+    }
+
+    if(local_base + effective_local_count > BC_VM_MAX_FRAME_SLOTS) {
         vm_set_error(error_buffer, error_buffer_size, "frame slot storage exhausted");
         return 0;
     }
@@ -579,14 +993,24 @@ static int vm_enter_frame(struct bc_vm *vm, struct bc_function *function, size_t
     frame->caller_frame_index = caller_frame_index;
     frame->closure_env_index = closure_env_index;
     frame->promoted_env_index = SIZE_MAX;
-    frame->stack_base = arg_base;
+    frame->stack_base = (uint32_t)natural_arg_base;  /* restore stack here on return */
     frame->arg_base = arg_base;
     frame->local_base = local_base;
     frame->arg_count = (uint32_t)arg_count;
-    frame->local_count = function->local_count;
+    frame->local_count = effective_local_count;
 
-    for(index = 0; index < arg_count; ++index) { vm->frame_slots[arg_base + index] = vm->stack[arg_base + index]; }
-    memset(&vm->frame_slots[local_base], 0, function->local_count * sizeof(vm->frame_slots[0]));
+    /* Copy args from their natural stack positions into the safe frame slot area */
+    for(index = 0; index < arg_count; ++index) {
+        vm->frame_slots[arg_base + index] = vm->stack[natural_arg_base + index];
+    }
+    memset(&vm->frame_slots[local_base], 0, effective_local_count * sizeof(vm->frame_slots[0]));
+
+    /* Pre-populate local slot 1 with 'self' for method frames */
+    if(effective_local_count >= 2 && closure_env_index != SIZE_MAX && closure_env_index < vm->environment_count) {
+        struct bc_constant *self_val = vm->environments[closure_env_index].self;
+        if(self_val != NULL) { vm->frame_slots[local_base + 1] = self_val; }
+    }
+
     vm->frame_count++;
     vm->current_frame_index = vm->frame_count - 1;
     return 1;
@@ -605,7 +1029,6 @@ static int vm_leave_frame(struct bc_vm *vm, char *error_buffer, size_t error_buf
     if(vm->stack_size > frame->stack_base) { result = vm->stack[vm->stack_size - 1]; }
 
     vm->stack_size = frame->stack_base;
-    memset(&vm->frame_slots[frame->arg_base], 0, (frame->arg_count + frame->local_count) * sizeof(vm->frame_slots[0]));
     vm->frame_count--;
 
     if(vm->frame_count == 0) {
@@ -667,7 +1090,8 @@ static int vm_apply_jump_delta(struct bc_vm *vm, int64_t delta, char *error_buff
     return 1;
 }
 
-static int vm_condition_is_false(struct bc_constant *condition, int *is_false, char *error_buffer, size_t error_buffer_size) {
+static int vm_condition_is_false(struct bc_vm *vm, struct bc_constant *condition, int *is_false,
+                                  char *error_buffer, size_t error_buffer_size) {
     if(is_false == NULL) {
         vm_set_error(error_buffer, error_buffer_size, "internal error: missing condition result storage");
         return 0;
@@ -682,6 +1106,16 @@ static int vm_condition_is_false(struct bc_constant *condition, int *is_false, c
         case BC_CONST_BOOLEAN:
         case BC_CONST_INTEGER: *is_false = condition->value.integer == 0; return 1;
 
+        case BC_CONST_OBJECT:
+            /* Leda boolean object: check if class table matches the False class */
+            if(condition->value.object.slot_count > 0 && condition->value.object.slots != NULL) {
+                struct bc_constant *class_table = condition->value.object.slots[0];
+                *is_false = (class_table != NULL && class_table == vm->builtin_class_tables[BC_BUILTIN_FALSE]);
+            } else {
+                *is_false = 0;
+            }
+            return 1;
+
         default:
             vm_set_error(error_buffer, error_buffer_size, "branch condition must currently be a boolean-compatible value");
             return 0;
@@ -693,6 +1127,7 @@ int bc_vm_init(struct bc_vm *vm, struct bc_module *module) {
 
     vm->module = module;
     vm->stack_size = 0;
+    memset(vm->builtin_class_tables, 0, sizeof(vm->builtin_class_tables));
     memset(vm->frame_slots, 0, sizeof(vm->frame_slots));
     memset(vm->env_slots, 0, sizeof(vm->env_slots));
     memset(vm->runtime_constants, 0, sizeof(vm->runtime_constants));
@@ -715,6 +1150,9 @@ void bc_vm_free(struct bc_vm *vm) {
             free(vm->runtime_constants[index].value.object.slots);
             vm->runtime_constants[index].value.object.slots = NULL;
             vm->runtime_constants[index].value.object.slot_count = 0;
+        } else if(vm->runtime_constants[index].kind == BC_CONST_STRING) {
+            free(vm->runtime_constants[index].value.string);
+            vm->runtime_constants[index].value.string = NULL;
         }
     }
 
@@ -760,7 +1198,7 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                 }
 
                 condition = vm->stack[--vm->stack_size];
-                if(!vm_condition_is_false(condition, &is_false, error_buffer, error_buffer_size)) { return 0; }
+                if(!vm_condition_is_false(vm, condition, &is_false, error_buffer, error_buffer_size)) { return 0; }
                 if(is_false
                    && !vm_apply_jump_delta(vm, delta, error_buffer, error_buffer_size, "conditional jump target out of range")) {
                     return 0;
@@ -1128,6 +1566,7 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                 struct bc_constant *receiver;
                 struct bc_constant *method_value;
                 struct bc_constant *bound_method;
+                struct bc_constant *class_table;
 
                 if(!vm_read_u64le(vm, &method_index)) {
                     vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_METHOD operand");
@@ -1138,9 +1577,44 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                     return 0;
                 }
                 receiver = vm->stack[vm->stack_size - 1];
-                if(!vm_bind_object_environment(vm, receiver, &method_env_index, error_buffer, error_buffer_size)) { return 0; }
-                if(!vm_get_object_slot_ref(receiver, 0, &method_ref, error_buffer, error_buffer_size)) { return 0; }
-                if(!vm_get_object_slot_ref(*method_ref, method_index, &method_ref, error_buffer, error_buffer_size)) { return 0; }
+
+                if(receiver != NULL && receiver->kind == BC_CONST_OBJECT) {
+                    if(!vm_bind_object_environment(vm, receiver, &method_env_index, error_buffer, error_buffer_size)) {
+                        return 0;
+                    }
+                    if(!vm_get_object_slot_ref(receiver, 0, &method_ref, error_buffer, error_buffer_size)) { return 0; }
+                    if(!vm_get_object_slot_ref(*method_ref, method_index, &method_ref, error_buffer, error_buffer_size)) {
+                        return 0;
+                    }
+                } else {
+                    size_t builtin_idx;
+                    switch(receiver != NULL ? (int)receiver->kind : -1) {
+                        case BC_CONST_INTEGER: builtin_idx = BC_BUILTIN_INTEGER; break;
+                        case BC_CONST_STRING:  builtin_idx = BC_BUILTIN_STRING;  break;
+                        case BC_CONST_BOOLEAN:
+                            builtin_idx = receiver->value.integer ? BC_BUILTIN_TRUE : BC_BUILTIN_FALSE;
+                            break;
+                        case BC_CONST_REAL:    builtin_idx = BC_BUILTIN_REAL;    break;
+                        default:
+                            vm_set_error(error_buffer, error_buffer_size,
+                                         "MAKE_METHOD requires an object or registered primitive receiver");
+                            return 0;
+                    }
+                    class_table = vm->builtin_class_tables[builtin_idx];
+                    if(class_table == NULL) {
+                        vm_set_error(error_buffer, error_buffer_size,
+                                     "builtin class table not yet registered for MAKE_METHOD");
+                        return 0;
+                    }
+                    if(!vm_bind_primitive_environment(vm, receiver, class_table, &method_env_index, error_buffer,
+                                                      error_buffer_size)) {
+                        return 0;
+                    }
+                    if(!vm_get_object_slot_ref(class_table, method_index, &method_ref, error_buffer, error_buffer_size)) {
+                        return 0;
+                    }
+                }
+
                 method_value = *method_ref;
                 if(method_value == NULL || method_value->kind != BC_CONST_FUNCTION) {
                     vm_set_error(error_buffer, error_buffer_size, "method table entry is not a function closure");
@@ -1150,6 +1624,24 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                                                          (uint64_t)method_env_index, error_buffer, error_buffer_size);
                 if(bound_method == NULL) { return 0; }
                 vm->stack[vm->stack_size - 1] = bound_method;
+                break;
+            }
+
+            case BC_OP_REGISTER_BUILTIN: {
+                uint64_t tag;
+                if(!vm_read_u64le(vm, &tag)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed REGISTER_BUILTIN operand");
+                    return 0;
+                }
+                if(tag >= BC_BUILTIN_COUNT) {
+                    vm_set_error(error_buffer, error_buffer_size, "REGISTER_BUILTIN tag out of range");
+                    return 0;
+                }
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in REGISTER_BUILTIN");
+                    return 0;
+                }
+                vm->builtin_class_tables[tag] = vm->stack[vm->stack_size - 1];
                 break;
             }
 

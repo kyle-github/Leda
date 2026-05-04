@@ -1,0 +1,35 @@
+include "std.led";
+
+var
+    a : integer;
+    b : integer;
+    s : string;
+begin
+    { Leda_string_print (primitive 2) }
+    print("hello ");
+    print("world\n");
+
+    { Leda_string_concat (primitive 3) }
+    s := "foo" + "bar";
+    print(s + "\n");
+
+    { Leda_integer_asString (primitive 9) via print(integer) }
+    a := 42;
+    print(a);
+    print("\n");
+
+    { Leda_string_compare (primitive 1): "abc".compare("abc") = 0 }
+    b := 0;
+    if "abc" = "abc" then
+        b := 1;
+    print(b);
+    print("\n");
+
+    { Leda_object_equals (primitive 0): same reference equals itself }
+    s := "test";
+    b := 0;
+    if s == s then
+        b := 1;
+    print(b);
+    print("\n");
+end;
