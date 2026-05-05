@@ -174,6 +174,14 @@ struct statementRecord *genBody(struct symbolTableRecord *syms, struct statement
             struct statementRecord *st;
 
             if(class_value == 0) { continue; }
+            /* Skip if the class has no symbol table — this means std.led wasn't included
+               and the True/False class bodies haven't been parsed yet. */
+            {
+                struct typeRecord *ct = class_value->resultType;
+                if(ct == NULL || ct->ttyp != classDefType) { continue; }
+                struct typeRecord *bct = ct->u.q.baseType;
+                if(bct == NULL || bct->ttyp != classType || bct->u.c.symbols == NULL) { continue; }
+            }
             st = genAssignmentStatement(target, generateFunctionCall(syms, class_value, 0, 1));
             st->next = code;
             code = st;
