@@ -1,0 +1,10 @@
+include "std.led";
+var
+    a, b, c : integer;
+begin
+    a := 3;
+    b := 2;
+    c := a + b;
+    print(c);
+    print("\n");
+end;

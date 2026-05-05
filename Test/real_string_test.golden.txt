@@ -1,0 +1,10 @@
+Leda_real_plus
+Leda_real_minus
+Leda_real_times
+Leda_real_divide
+Leda_real_less
+Leda_real_asInteger
+Leda_integer_asReal
+Leda_real_asString
+Leda_string_substring
+Leda_string_length

@@ -45,7 +45,7 @@ The resulting toolchain should consist of:
 
 ## Status Snapshot
 
-This document began as a design and migration plan. As of May 3, 2026, it also serves as an implementation status report for the code under `src_bytecode/`.
+This document began as a design and migration plan. As of May 5, 2026, it also serves as an implementation status report for the code under `src_bytecode/`.
 
 The short version is:
 
@@ -55,9 +55,10 @@ The short version is:
 - the VM executes that slice, including closures, captured variables, references, object construction, object slot access, method calls, and pattern matching
 - narrow bytecode regressions are wired into CTest and have been the main driver for development
 - all 14 bytecode regressions are currently green
-- the main remaining blocker before broader library and regression-suite parity is primitive coverage: real arithmetic and string manipulation primitives are not yet implemented
+- all Tier B, C, and D primitives are implemented end-to-end: integer, real, and string arithmetic including `subString`, comparisons, and boolean singletons work correctly through the full method dispatch pipeline
+- a combined real-arithmetic and string fixture (`real_string_fixture.led`) is green and wired into CTest as `real_string_test`
 
-The current implementation is therefore no longer a stub or architecture sketch. It is a working bytecode compiler and VM for a non-trivial subset of the language, with closures, methods, references, pattern matching, and a meaningful subset of the standard-library primitives already present.
+The current implementation is therefore no longer a stub or architecture sketch. It is a working bytecode compiler and VM for a non-trivial subset of the language, with closures, methods, references, pattern matching, and the full standard-library primitive set already present.
 
 ### What is implemented today
 
@@ -160,6 +161,14 @@ Implemented runtime areas include:
 - all integer arithmetic and logic primitives: equals (4), plus/minus/times/divide (5–8), less (10), or/and/not (11–13), `Leda_object_defined` (22)
 - `Leda_object_allocate` (15), `Leda_object_at` (16), `Leda_object_atPut` (17)
 - class table slot 2 is now populated with the class name string during compilation, enabling `object.asString()` for user-defined classes
+- Tier B real arithmetic: `Leda_integer_asReal` (14), `Leda_real_asString` (23), `Leda_real_plus` (24), `Leda_real_minus` (25), `Leda_real_times` (26), `Leda_real_divide` (27), `Leda_real_less` (28), `Leda_real_asInteger` (29), `Leda_real_equals` (30)
+- Tier C string and I/O: `Leda_string_length` (19), `Leda_string_substring` (20), `Leda_stdin_read` (21)
+- Tier D generic coercion: `Leda_object_cast` (18)
+- builtin class table registry expanded to distinguish `BC_BUILTIN_TRUE` (4) and `BC_BUILTIN_FALSE` (5) from the shared `BC_BUILTIN_BOOLEAN` (2); this enables correct `not`, `or`, and `and` dispatch on True and False instances
+- `vm_condition_is_false` extended to handle `BC_CONST_OBJECT` by comparing the object's class table against the False builtin table
+- `vm_get_local_slot_ref` extended to fall through into the closure environment for thunk/lambda captures when `local_index >= frame->local_count`
+- `vm_enter_frame` arg_base calculation guarded against overlap with caller's active local slots
+- `vm_bind_primitive_environment` environment parent now threaded from the class table's `BC_CONST_ENVREF` slot, enabling depth > 1 captures from primitive method bodies
 
 The VM is therefore already executing code that depends on lexical capture, mutation through references, instance-slot indirection, method dispatch on both objects and primitive values, and `is` pattern matching. That is materially beyond a "toy VM" stage.
 
@@ -192,29 +201,11 @@ The remaining work should be understood as feature completion, not project boots
 
 There are no known red regressions. The main work is expanding primitive coverage and widening test coverage toward the legacy chapter regression corpus.
 
-The unimplemented primitives and their chapter impact:
+The remaining work is:
 
-**Tier B — real arithmetic (blocks chapters 11, 14, 15a, 15c, 16)**
-
-- 14: `Leda_integer_asReal`
-- 23: `Leda_real_asString`
-- 24–28: `Leda_real_plus`, `Leda_real_minus`, `Leda_real_times`, `Leda_real_divide`, `Leda_real_less`
-- 29: `Leda_real_asInteger`
-- 30: `Leda_real_equals`
-
-**Tier C — string manipulation and I/O (blocks chapters 8c, 17)**
-
-- 19: `Leda_string_length`
-- 20: `Leda_string_substring`
-- 21: `Leda_stdin_read`
-
-**Tier D — generics support**
-
-- 18: `Leda_object_cast` — used by `typeTest()` in generic type coercion
-
-Beyond primitives, the remaining work is:
-
+- fix the pre-existing `ledac` segfault on closures that capture outer function locals (reproduces with `nested_direct_call_fixture.led`), which blocks 8 of 55 CTest tests
 - expand coverage from narrow focused fixtures to more of the legacy regression corpus through `ledac` plus `ledavm`
+- add output-comparison infrastructure so VM output can be checked against known-good text in CTest
 - continue checking that standard-library initialization paths behave correctly when class tables and methods are created through bytecode-visible objects rather than legacy interpreter-only runtime helpers
 
 ## Current Implementation Baseline
@@ -1912,7 +1903,7 @@ This phase has been validated repeatedly through the narrow bytecode tests and i
 
 ### Phase 4: primitive support
 
-Status: partially complete. Core integer, string, and object primitives are done. Real arithmetic and string manipulation remain.
+Status: implementation complete for all identified tiers. End-to-end validation through a real-and-string fixture is in progress.
 
 Completed work:
 
@@ -1923,12 +1914,13 @@ Completed work:
 - All integer arithmetic and logic: 4–13
 - Object array primitives: 15, 16, 17
 - `Leda_object_defined`: 22
+- Tier B real arithmetic: 14, 23–30
+- Tier C string and stdin: 19, 20, 21
+- Tier D cast: 18
 
-Still needed:
+Remaining work:
 
-- Tier B: real arithmetic — primitives 14, 23–30
-- Tier C: string manipulation and stdin — primitives 19, 20, 21
-- Tier D: `Leda_object_cast` — primitive 18
+- `real_string_fixture.led` is partially passing; real arithmetic output is correct through `asInteger` and `asReal`, and `string.length` returns the correct value, but a frame-management interaction when calling `string.subString` is still being debugged
 
 ### Phase 5: closures and lexical capture
 
@@ -2156,12 +2148,17 @@ The implementation now supports far more than the original first milestone targe
 
 The current practical milestone is no longer "get a minimal VM running" or "finish methods and pattern matching". Both of those are done.
 
+The previous practical milestone is now complete:
+
+- the Tier B/C/D primitive set is fully validated end-to-end through `real_string_fixture`
+- the `real_string_test` golden regression is wired into CTest and green
+- four VM bugs were fixed in this phase: primitive environment slot layout, spurious `REGISTER_BUILTIN` for boolean singletons, env-slot watermark overlap across environment kinds, and missing arg-slot mapping in captured-local resolution
+
 The current practical milestone is:
 
-- implement Tier B real arithmetic primitives (14, 23–30) to unblock 5 chapter tests
-- implement Tier C string and stdin primitives (19, 20, 21) to unblock 2 more chapter tests
-- implement Tier D `Leda_object_cast` (18) for generic type coercion
 - begin running legacy chapter regression fixtures through `ledac` plus `ledavm` and tracking which pass
+- investigate and fix the pre-existing `ledac` segfault on closures that capture outer function locals (blocking 8 of 55 CTest tests)
+- add output-comparison infrastructure to the test harness so VM output can be checked against golden text, not just dump contents
 
 The right first success condition is:
 

@@ -1071,10 +1071,13 @@ static int bc_compile_expression(struct bc_compile_context *context, struct expr
                 if(!bc_compile_assignment_target(context, expression->u.a.left, function, error_buffer, error_buffer_size)) {
                     return 0;
                 }
-                /* After STORE (which leaves value on stack), register builtin class tables */
+                /* After STORE (which leaves value on stack), register builtin class tables.
+                   Only register when storing the class TABLE (size > 2); skip singleton instances
+                   like `true := True buildInstance` which have size==2 (classPtr + contextRef only). */
                 {
                     struct expressionRecord *rhs = expression->u.a.right;
-                    if(rhs != NULL && rhs->operator== buildInstance && rhs->resultType != NULL) {
+                    if(rhs != NULL && rhs->operator== buildInstance && rhs->resultType != NULL
+                       && rhs->u.n.size > 2) {
                         int builtin_tag = bc_builtin_class_tag(rhs->resultType);
                         if(builtin_tag >= 0) {
                             if(!bc_emit_opcode(function, BC_OP_REGISTER_BUILTIN)

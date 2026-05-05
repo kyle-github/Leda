@@ -52,6 +52,7 @@ struct bc_vm {
     size_t runtime_constant_count;
     struct bc_environment environments[BC_VM_MAX_ENVIRONMENTS];
     size_t environment_count;
+    size_t env_slot_count;   /* next free index in env_slots[] for promoted frame envs */
     struct bc_frame frames[BC_VM_MAX_FRAMES];
     size_t frame_count;
     size_t current_frame_index;

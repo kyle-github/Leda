@@ -47,18 +47,13 @@ static int vm_promote_frame_environment(struct bc_vm *vm, size_t frame_index, si
     environment = &vm->environments[vm->environment_count];
     memset(environment, 0, sizeof(*environment));
     environment->parent_env_index = frame->closure_env_index;
-    environment->arg_base = 0;
-    environment->local_base = frame->arg_count;
     environment->arg_count = frame->arg_count;
     environment->local_count = frame->local_count;
     environment->object = NULL;
 
-    if(vm->environment_count == 0) {
-        environment->arg_base = 0;
-    } else {
-        struct bc_environment *previous = &vm->environments[vm->environment_count - 1];
-        environment->arg_base = previous->local_base + previous->local_count;
-    }
+    /* Use env_slot_count as the watermark so primitive/object envs (which have
+       local_base=0, local_count=0) don't cause overlap with existing promoted envs. */
+    environment->arg_base = vm->env_slot_count;
     environment->local_base = environment->arg_base + environment->arg_count;
 
     if(environment->local_base + environment->local_count > BC_VM_MAX_ENV_SLOTS) {
@@ -72,6 +67,8 @@ static int vm_promote_frame_environment(struct bc_vm *vm, size_t frame_index, si
     for(local_index = 0; local_index < frame->local_count; ++local_index) {
         vm->env_slots[environment->local_base + local_index] = vm->frame_slots[frame->local_base + local_index];
     }
+
+    vm->env_slot_count = environment->local_base + environment->local_count;
 
     frame->promoted_env_index = vm->environment_count;
     *env_index = vm->environment_count;
@@ -243,6 +240,18 @@ static int vm_get_capture_local_slot_ref(struct bc_vm *vm, uint64_t depth, uint6
         return vm_get_object_slot_ref(environment->object, local_index, slot_ref, error_buffer, error_buffer_size);
     }
     if(local_index >= environment->local_count) {
+        /* Slots 4+ map to captured args (arg_slot = local_index - 4), mirroring the
+           convention in vm_get_local_slot_ref for thunks/lambdas. */
+        if(local_index >= 4) {
+            size_t arg_slot = (size_t)(local_index - 4);
+            if(arg_slot < environment->arg_count) {
+                slot_index = environment->arg_base + arg_slot;
+                if(slot_index < BC_VM_MAX_ENV_SLOTS) {
+                    *slot_ref = &vm->env_slots[slot_index];
+                    return 1;
+                }
+            }
+        }
         vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot index");
         return 0;
     }
@@ -498,12 +507,12 @@ static int vm_bind_primitive_environment(struct bc_vm *vm, struct bc_constant *p
         return 0;
     }
 
-    /* Build a 3-slot wrapper so LOAD_CAPTURE_LOCAL depth=1 slot=2 returns the primitive value */
-    wrapper = vm_alloc_runtime_object(vm, 3, error_buffer, error_buffer_size);
+    /* Build a 2-slot wrapper: slot[0]=class_table, slot[1]=primitive value.
+       LOAD_CAPTURE_LOCAL depth=1 slot=1 in primitive methods reads the receiver. */
+    wrapper = vm_alloc_runtime_object(vm, 2, error_buffer, error_buffer_size);
     if(wrapper == NULL) { return 0; }
     wrapper->value.object.slots[0] = class_table;
-    wrapper->value.object.slots[1] = NULL;
-    wrapper->value.object.slots[2] = primitive;
+    wrapper->value.object.slots[1] = primitive;
 
     /* Inherit the class table's construction context so depth>1 captures resolve correctly */
     size_t parent_env = SIZE_MAX;
@@ -1027,7 +1036,6 @@ static int vm_leave_frame(struct bc_vm *vm, char *error_buffer, size_t error_buf
 
     frame = vm_current_frame(vm);
     if(vm->stack_size > frame->stack_base) { result = vm->stack[vm->stack_size - 1]; }
-
     vm->stack_size = frame->stack_base;
     vm->frame_count--;
 
@@ -1134,6 +1142,7 @@ int bc_vm_init(struct bc_vm *vm, struct bc_module *module) {
     vm->runtime_constant_count = 0;
     memset(vm->environments, 0, sizeof(vm->environments));
     vm->environment_count = 0;
+    vm->env_slot_count = 0;
     memset(vm->frames, 0, sizeof(vm->frames));
     vm->frame_count = 0;
     vm->current_frame_index = 0;
