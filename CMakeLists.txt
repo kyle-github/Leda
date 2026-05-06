@@ -161,6 +161,19 @@ foreach(LEGACY_REGRESSION_INDEX RANGE ${LEGACY_REGRESSION_LAST})
     set_tests_properties(legacy_${LEGACY_REGRESSION_CASE}_test PROPERTIES LABELS "legacy-regression")
 endforeach()
 
+foreach(chap2_case IN ITEMS chap2a chap2b chap2c chap2d chap2e chap2f)
+    add_test(NAME vm_${chap2_case}_test
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_NAME=vm_${chap2_case}_test
+            -DBUILD_DIR=${CMAKE_BINARY_DIR}
+            -DLEDAC_PATH=$<TARGET_FILE:ledac>
+            -DLEDAVM_PATH=$<TARGET_FILE:ledavm>
+            -DFIXTURE_PATH=${CMAKE_SOURCE_DIR}/Test/${chap2_case}.led
+            -DEXPECTED_OUTPUT_PATH=${CMAKE_SOURCE_DIR}/Test/${chap2_case}_vm.golden.txt
+            -P ${CMAKE_SOURCE_DIR}/Test/run_vm_output_test.cmake)
+    set_tests_properties(vm_${chap2_case}_test PROPERTIES LABELS "vm-regression")
+endforeach()
+
 add_test(NAME lbcdump_test
     COMMAND ${CMAKE_COMMAND}
         -DTEST_NAME=lbcdump_test
