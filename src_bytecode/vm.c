@@ -237,6 +237,12 @@ static int vm_get_capture_local_slot_ref(struct bc_vm *vm, uint64_t depth, uint6
 
     environment = &vm->environments[env_index];
     if(environment->object != NULL) {
+        /* Slot 1 in an object-method environment is 'self' (the receiver object),
+           matching the convention used by the primitive wrapper (vm_bind_primitive_environment). */
+        if(local_index == 1 && environment->self != NULL) {
+            *slot_ref = &environment->self;
+            return 1;
+        }
         return vm_get_object_slot_ref(environment->object, local_index, slot_ref, error_buffer, error_buffer_size);
     }
     if(local_index >= environment->local_count) {

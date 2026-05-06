@@ -572,6 +572,35 @@ static int bc_statement_reaches_linear(struct statementRecord *start, struct sta
     return 0;
 }
 
+/* Like bc_statement_reaches_linear but stops at stop, and follows u.c.falsePart instead of
+   next when crossing a conditionalStatement node.  This skips over nested loop bodies so
+   their internal back-edges don't create false cycles that terminate the search prematurely. */
+static int bc_statement_reaches_linear_within(struct statementRecord *start, struct statementRecord *target,
+                                               struct statementRecord *stop) {
+    struct statementRecord *visited[512];
+    size_t visited_count = 0;
+
+    for(; start != NULL && start != stop && visited_count < (sizeof(visited) / sizeof(visited[0]));) {
+        size_t index;
+
+        if(start == target) { return 1; }
+        for(index = 0; index < visited_count; ++index) {
+            if(visited[index] == start) { return 0; }
+        }
+        visited[visited_count++] = start;
+
+        /* Follow falsePart for conditional nodes to skip over their body/branches.
+           This prevents nested loops' back-edges from terminating the outer-loop search. */
+        if(start->statementType == conditionalStatement) {
+            start = start->u.c.falsePart;
+        } else {
+            start = start->next;
+        }
+    }
+
+    return 0;
+}
+
 static int bc_compile_control_flow_statement(struct bc_compile_context *context, struct statementRecord *statement,
                                              struct statementRecord *stop, struct bc_function *function,
                                              struct bc_call_state *call_state, struct statementRecord **next_statement,
@@ -584,7 +613,7 @@ static int bc_compile_control_flow_statement(struct bc_compile_context *context,
         return 0;
     }
 
-    if(bc_statement_reaches_linear(statement->next, statement)) {
+    if(bc_statement_reaches_linear_within(statement->next, statement, stop)) {
         struct bc_call_state loop_state;
         size_t loop_start_offset = function->code.size;
 
