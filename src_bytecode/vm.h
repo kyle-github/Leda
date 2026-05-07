@@ -3,11 +3,11 @@
 
 #include "bytecode.h"
 
-#define BC_VM_MAX_STACK 256u
-#define BC_VM_MAX_FRAME_SLOTS 512u
-#define BC_VM_MAX_FRAMES 64u
-#define BC_VM_MAX_ENVIRONMENTS 128u
-#define BC_VM_MAX_ENV_SLOTS 1024u
+#define BC_VM_MAX_STACK 4096u
+#define BC_VM_MAX_FRAME_SLOTS 8192u
+#define BC_VM_MAX_FRAMES 512u
+#define BC_VM_MAX_ENVIRONMENTS 4096u
+#define BC_VM_MAX_ENV_SLOTS 65536u
 #define BC_VM_MAX_RUNTIME_CONSTANTS 65536u
 
 struct bc_environment {

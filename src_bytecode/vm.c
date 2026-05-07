@@ -235,41 +235,64 @@ static int vm_get_capture_local_slot_ref(struct bc_vm *vm, uint64_t depth, uint6
         return 0;
     }
 
-    environment = &vm->environments[env_index];
-    if(environment->object != NULL) {
-        /* Slot 1 in an object-method environment is 'self' (the receiver object),
-           matching the convention used by the primitive wrapper (vm_bind_primitive_environment). */
-        if(local_index == 1 && environment->self != NULL) {
-            *slot_ref = &environment->self;
+    /* Walk the environment chain from the resolved depth upward.  The compiler emits
+       LOAD_CAPTURE_LOCAL depth=1 for all context-local accesses regardless of actual
+       lexical nesting depth.  Nested relation thunks (arity=0, no locals) create a
+       chain of empty intermediate environments, so we may need to skip several levels
+       to reach the env that actually owns the requested slot.
+       Slot ownership: slot N is in env E when N < E.local_count (local) or N-4 < E.arg_count
+       (arg, using the slot-4 convention).  We stop at the first env that owns the slot,
+       which is always the innermost scope that declared the variable. */
+    while(env_index < vm->environment_count) {
+        environment = &vm->environments[env_index];
+        if(environment->object != NULL) {
+            /* Object/method env: handle in-place, do not walk through. */
+            if(local_index == 1 && environment->self != NULL) {
+                *slot_ref = &environment->self;
+                return 1;
+            }
+            return vm_get_object_slot_ref(environment->object, local_index, slot_ref, error_buffer, error_buffer_size);
+        }
+        if(local_index < environment->local_count) {
+            slot_index = environment->local_base + (size_t)local_index;
+            if(slot_index >= BC_VM_MAX_ENV_SLOTS) {
+                vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot access");
+                return 0;
+            }
+            *slot_ref = &vm->env_slots[slot_index];
             return 1;
         }
-        return vm_get_object_slot_ref(environment->object, local_index, slot_ref, error_buffer, error_buffer_size);
-    }
-    if(local_index >= environment->local_count) {
-        /* Slots 4+ map to captured args (arg_slot = local_index - 4), mirroring the
-           convention in vm_get_local_slot_ref for thunks/lambdas. */
         if(local_index >= 4) {
             size_t arg_slot = (size_t)(local_index - 4);
             if(arg_slot < environment->arg_count) {
                 slot_index = environment->arg_base + arg_slot;
-                if(slot_index < BC_VM_MAX_ENV_SLOTS) {
-                    *slot_ref = &vm->env_slots[slot_index];
-                    return 1;
+                if(slot_index >= BC_VM_MAX_ENV_SLOTS) {
+                    vm_set_error(error_buffer, error_buffer_size, "invalid captured arg slot access");
+                    return 0;
                 }
+                *slot_ref = &vm->env_slots[slot_index];
+                return 1;
             }
         }
-        vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot index");
-        return 0;
+        if(environment->parent_env_index == SIZE_MAX) { break; }
+        env_index = environment->parent_env_index;
     }
 
-    slot_index = environment->local_base + (size_t)local_index;
-    if(slot_index >= BC_VM_MAX_ENV_SLOTS) {
-        vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot access");
-        return 0;
-    }
+    vm_set_error(error_buffer, error_buffer_size, "invalid captured local slot index");
+    return 0;
+}
 
-    *slot_ref = &vm->env_slots[slot_index];
-    return 1;
+/* If the slot pointed to by slot_ref contains a BC_CONST_REFERENCE, follow it one level
+   so that stores to byRef parameters write through to the referenced variable.  This
+   implements the Leda byRef assignment semantic: assigning to a byRef slot means writing
+   into the variable the caller passed by reference. */
+static struct bc_constant **vm_resolve_store_target(struct bc_constant **slot_ref) {
+    if(slot_ref == NULL) { return slot_ref; }
+    struct bc_constant *current = *slot_ref;
+    if(current != NULL && current->kind == BC_CONST_REFERENCE && current->value.slot_ref != NULL) {
+        return current->value.slot_ref;
+    }
+    return slot_ref;
 }
 
 static int vm_get_capture_arg_slot_ref(struct bc_vm *vm, uint64_t depth, uint64_t arg_index, struct bc_constant ***slot_ref,
@@ -707,8 +730,6 @@ static int vm_call_primitive(struct bc_vm *vm, uint64_t primitive_index, size_t 
             }
             start = argv[1]->value.integer;
             len = argv[2]->value.integer;
-            fprintf(stderr, "DEBUG prim20: str=%s start=%lld len=%lld argc=%zu\n",
-                    argv[0]->value.string, (long long)start, (long long)len, argc);
             source_len = (int64_t)strlen(argv[0]->value.string);
             if(start < 0) { start = 0; }
             if(start > source_len) { start = source_len; }
@@ -1028,12 +1049,14 @@ static int vm_enter_frame(struct bc_vm *vm, struct bc_function *function, size_t
 
     vm->frame_count++;
     vm->current_frame_index = vm->frame_count - 1;
+
     return 1;
 }
 
 static int vm_leave_frame(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
     struct bc_frame *frame;
     struct bc_constant *result = NULL;
+    int has_result;
 
     if(vm->frame_count == 0) {
         vm_set_error(error_buffer, error_buffer_size, "frame stack underflow on return");
@@ -1041,12 +1064,13 @@ static int vm_leave_frame(struct bc_vm *vm, char *error_buffer, size_t error_buf
     }
 
     frame = vm_current_frame(vm);
-    if(vm->stack_size > frame->stack_base) { result = vm->stack[vm->stack_size - 1]; }
+    has_result = (vm->stack_size > frame->stack_base);
+    if(has_result) { result = vm->stack[vm->stack_size - 1]; }
     vm->stack_size = frame->stack_base;
     vm->frame_count--;
 
     if(vm->frame_count == 0) {
-        if(result != NULL) {
+        if(has_result) {
             vm->stack[0] = result;
             vm->stack_size = 1;
         }
@@ -1054,7 +1078,7 @@ static int vm_leave_frame(struct bc_vm *vm, char *error_buffer, size_t error_buf
     }
 
     vm->current_frame_index = frame->caller_frame_index;
-    if(result != NULL) {
+    if(has_result) {
         if(vm->stack_size >= BC_VM_MAX_STACK) {
             vm_set_error(error_buffer, error_buffer_size, "operand stack overflow while returning");
             return 0;
@@ -1737,7 +1761,7 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                     if(vm->stack_size == 0) { vm_set_error(error_buffer, error_buffer_size, "invalid captured local store"); }
                     return 0;
                 }
-                *slot_ref = vm->stack[vm->stack_size - 1];
+                *vm_resolve_store_target(slot_ref) = vm->stack[vm->stack_size - 1];
                 break;
             }
 
@@ -1809,7 +1833,7 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                     if(vm->stack_size == 0) { vm_set_error(error_buffer, error_buffer_size, "invalid captured argument store"); }
                     return 0;
                 }
-                *slot_ref = vm->stack[vm->stack_size - 1];
+                *vm_resolve_store_target(slot_ref) = vm->stack[vm->stack_size - 1];
                 break;
             }
 
