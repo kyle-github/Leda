@@ -1,0 +1,13 @@
+parse ok, starting execution
+alice and fred love cats 
+cats love cats 
+teachers hassle cats 
+people hate dogs 
+people hassle people 
+alice and fred hassle donuts 
+cats love cats 
+alice and fred love cats 
+alice and fred hassle cats 
+cats hassle cats 
+
+execution ended normally

@@ -1,0 +1,14 @@
+parse ok, starting execution
+helen is the child of leda and zeus
+hermione is the child of helen and menelaus
+iphigenia is the child of clytemnestra and agamemnon
+iphigenia is the child of clytemnestra and agamemnon
+orestes is the child of clytemnestra and agamemnon
+leda is the mother of helen
+clytemnestra is not the father of iphigenia
+agamemnon is the father of iphigenia
+clytemnestra is the mother of iphigenia
+clytemnestra is the Mother of iphigenia
+clytemnestra is the Mother of orestes
+
+execution ended normally

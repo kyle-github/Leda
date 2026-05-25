@@ -1,0 +1,5 @@
+parse ok, starting execution
+sorted output
+1 2 4 5 7 
+
+execution ended normally

@@ -1,0 +1,20 @@
+{
+  "test_name": "chap2a",
+  "source_path": "/Users/kyle/Projects/Leda/Test/chap2a.led",
+  "stdin_path": null,
+  "compile_command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/kyle/Projects/Leda/py_leda_vm/tools/compile.py",
+    "/Users/kyle/Projects/Leda/Test/chap2a.led",
+    "-o",
+    "/Users/kyle/Projects/Leda/py_leda_vm/tests/diff_artifacts/images/chap2a.lbc"
+  ],
+  "vm_command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/kyle/Projects/Leda/py_leda_vm/tools/run_vm.py",
+    "/Users/kyle/Projects/Leda/py_leda_vm/tests/diff_artifacts/images/chap2a.lbc"
+  ],
+  "expected_exit_code": 0,
+  "actual_compile_exit_code": 0,
+  "actual_vm_exit_code": 0
+}

@@ -1,0 +1,10 @@
+parse ok, starting execution
+best: 1 
+it: 1 2 
+of: 1 2 
+the: 1 2 
+times: 1 2 
+was: 1 2 
+worst: 2 
+
+execution ended normally

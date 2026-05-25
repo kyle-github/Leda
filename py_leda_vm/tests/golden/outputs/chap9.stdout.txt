@@ -1,0 +1,4 @@
+parse ok, starting execution
+((a+(i*40))+-72)
+
+execution ended normally

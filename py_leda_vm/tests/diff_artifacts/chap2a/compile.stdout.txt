@@ -1,0 +1,1 @@
+stub-compiled /Users/kyle/Projects/Leda/Test/chap2a.led -> /Users/kyle/Projects/Leda/py_leda_vm/tests/diff_artifacts/images/chap2a.lbc

@@ -1,0 +1,378 @@
+{
+  "repo_root": "/Users/kyle/Projects/Leda",
+  "generated_by": "tools/generate_goldens.py",
+  "tests": [
+    {
+      "test_name": "chap2a",
+      "source_path": "Test/chap2a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2a.stdout.txt",
+      "expected_stderr_path": "outputs/chap2a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap2b",
+      "source_path": "Test/chap2b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2b.stdout.txt",
+      "expected_stderr_path": "outputs/chap2b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap2c",
+      "source_path": "Test/chap2c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2c.stdout.txt",
+      "expected_stderr_path": "outputs/chap2c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap2d",
+      "source_path": "Test/chap2d.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2d.stdout.txt",
+      "expected_stderr_path": "outputs/chap2d.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap2e",
+      "source_path": "Test/chap2e.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2e.stdout.txt",
+      "expected_stderr_path": "outputs/chap2e.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap2f",
+      "source_path": "Test/chap2f.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap2f.stdout.txt",
+      "expected_stderr_path": "outputs/chap2f.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap3",
+      "source_path": "Test/chap3.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap3.stdout.txt",
+      "expected_stderr_path": "outputs/chap3.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap4a",
+      "source_path": "Test/chap4a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap4a.stdout.txt",
+      "expected_stderr_path": "outputs/chap4a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap4b",
+      "source_path": "Test/chap4b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap4b.stdout.txt",
+      "expected_stderr_path": "outputs/chap4b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap4c",
+      "source_path": "Test/chap4c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap4c.stdout.txt",
+      "expected_stderr_path": "outputs/chap4c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap5",
+      "source_path": "Test/chap5.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap5.stdout.txt",
+      "expected_stderr_path": "outputs/chap5.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap6a",
+      "source_path": "Test/chap6a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6a.stdout.txt",
+      "expected_stderr_path": "outputs/chap6a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap6b",
+      "source_path": "Test/chap6b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6b.stdout.txt",
+      "expected_stderr_path": "outputs/chap6b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap6c",
+      "source_path": "Test/chap6c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6c.stdout.txt",
+      "expected_stderr_path": "outputs/chap6c.stderr.txt",
+      "expected_exit_code": 1
+    },
+    {
+      "test_name": "chap6d",
+      "source_path": "Test/chap6d.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6d.stdout.txt",
+      "expected_stderr_path": "outputs/chap6d.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap6e",
+      "source_path": "Test/chap6e.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6e.stdout.txt",
+      "expected_stderr_path": "outputs/chap6e.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap6f",
+      "source_path": "Test/chap6f.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap6f.stdout.txt",
+      "expected_stderr_path": "outputs/chap6f.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap7a",
+      "source_path": "Test/chap7a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap7a.stdout.txt",
+      "expected_stderr_path": "outputs/chap7a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap7b",
+      "source_path": "Test/chap7b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap7b.stdout.txt",
+      "expected_stderr_path": "outputs/chap7b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap7c",
+      "source_path": "Test/chap7c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap7c.stdout.txt",
+      "expected_stderr_path": "outputs/chap7c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap7d",
+      "source_path": "Test/chap7d.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap7d.stdout.txt",
+      "expected_stderr_path": "outputs/chap7d.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap8a",
+      "source_path": "Test/chap8a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap8a.stdout.txt",
+      "expected_stderr_path": "outputs/chap8a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap8b",
+      "source_path": "Test/chap8b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap8b.stdout.txt",
+      "expected_stderr_path": "outputs/chap8b.stderr.txt",
+      "expected_exit_code": 1
+    },
+    {
+      "test_name": "chap8c",
+      "source_path": "Test/chap8c.led",
+      "stdin_path": "Test/concordanceInput",
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap8c.stdout.txt",
+      "expected_stderr_path": "outputs/chap8c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap9",
+      "source_path": "Test/chap9.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap9.stdout.txt",
+      "expected_stderr_path": "outputs/chap9.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap11",
+      "source_path": "Test/chap11.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap11.stdout.txt",
+      "expected_stderr_path": "outputs/chap11.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap14",
+      "source_path": "Test/chap14.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap14.stdout.txt",
+      "expected_stderr_path": "outputs/chap14.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap15a",
+      "source_path": "Test/chap15a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap15a.stdout.txt",
+      "expected_stderr_path": "outputs/chap15a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap15b",
+      "source_path": "Test/chap15b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap15b.stdout.txt",
+      "expected_stderr_path": "outputs/chap15b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap15c",
+      "source_path": "Test/chap15c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap15c.stdout.txt",
+      "expected_stderr_path": "outputs/chap15c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap15d",
+      "source_path": "Test/chap15d.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap15d.stdout.txt",
+      "expected_stderr_path": "outputs/chap15d.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap16",
+      "source_path": "Test/chap16.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap16.stdout.txt",
+      "expected_stderr_path": "outputs/chap16.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap17",
+      "source_path": "Test/chap17.led",
+      "stdin_path": "Test/chap17input",
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap17.stdout.txt",
+      "expected_stderr_path": "outputs/chap17.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap19a",
+      "source_path": "Test/chap19a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap19a.stdout.txt",
+      "expected_stderr_path": "outputs/chap19a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap19b",
+      "source_path": "Test/chap19b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap19b.stdout.txt",
+      "expected_stderr_path": "outputs/chap19b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap19c",
+      "source_path": "Test/chap19c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap19c.stdout.txt",
+      "expected_stderr_path": "outputs/chap19c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap20a",
+      "source_path": "Test/chap20a.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap20a.stdout.txt",
+      "expected_stderr_path": "outputs/chap20a.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap20b",
+      "source_path": "Test/chap20b.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap20b.stdout.txt",
+      "expected_stderr_path": "outputs/chap20b.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap20c",
+      "source_path": "Test/chap20c.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap20c.stdout.txt",
+      "expected_stderr_path": "outputs/chap20c.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap20d",
+      "source_path": "Test/chap20d.led",
+      "stdin_path": null,
+      "legacy_args": [
+        "-m",
+        "500000"
+      ],
+      "expected_stdout_path": "outputs/chap20d.stdout.txt",
+      "expected_stderr_path": "outputs/chap20d.stderr.txt",
+      "expected_exit_code": 0
+    },
+    {
+      "test_name": "chap21",
+      "source_path": "Test/chap21.led",
+      "stdin_path": null,
+      "legacy_args": [],
+      "expected_stdout_path": "outputs/chap21.stdout.txt",
+      "expected_stderr_path": "outputs/chap21.stderr.txt",
+      "expected_exit_code": 0
+    }
+  ]
+}

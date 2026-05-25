@@ -1,0 +1,9 @@
+parse ok, starting execution
+Sam Spade:587336:70:80:100:
+
+James Bond:438765:0:0:7:
+
+John Watson:875429:98:72:14:
+
+
+execution ended normally

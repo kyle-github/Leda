@@ -1,0 +1,82 @@
+parse ok, starting execution
+group of size 2 arrives at time 2 and is seated
+group of size 3 arrives at time 4 and is seated
+group of size 2 orders 2 scoops of ice cream
+group of size 3 arrives at time 7 and is seated
+group of size 3 orders 4 scoops of ice cream
+group of size 1 arrives at time 11 and is seated
+group of size 3 arrives at time 13 and is seated
+group of size 3 orders 4 scoops of ice cream
+group of size 1 orders 1 scoops of ice cream
+group of size 1 arrives at time 17 and is seated
+group of size 3 orders 7 scoops of ice cream
+group of size 1 orders 1 scoops of ice cream
+group of size 3 arrives at time 27 and is seated
+group of size 2 departs
+group of size 3 orders 3 scoops of ice cream
+group of size 3 departs
+group of size 1 departs
+group of size 2 arrives at time 37 and is seated
+group of size 3 departs
+group of size 1 arrives at time 41 and is seated
+group of size 2 orders 2 scoops of ice cream
+group of size 3 departs
+group of size 1 arrives at time 47 and is seated
+group of size 1 arrives at time 51 and is seated
+group of size 1 orders 3 scoops of ice cream
+group of size 1 orders 1 scoops of ice cream
+group of size 1 departs
+group of size 1 arrives at time 53 and is seated
+group of size 1 orders 2 scoops of ice cream
+group of size 3 departs
+group of size 1 arrives at time 60 and is seated
+group of size 1 orders 1 scoops of ice cream
+group of size 1 orders 1 scoops of ice cream
+group of size 1 arrives at time 70 and is seated
+group of size 1 departs
+group of size 1 departs
+group of size 1 arrives at time 77 and is seated
+group of size 2 departs
+group of size 1 arrives at time 78 and is seated
+group of size 1 orders 1 scoops of ice cream
+group of size 1 orders 1 scoops of ice cream
+group of size 1 departs
+group of size 1 orders 1 scoops of ice cream
+group of size 1 departs
+group of size 3 arrives at time 86 and is seated
+group of size 1 departs
+group of size 1 departs
+group of size 2 arrives at time 96 and is seated
+group of size 3 orders 3 scoops of ice cream
+group of size 3 arrives at time 100 and is seated
+group of size 3 arrives at time 102 and is seated
+group of size 1 departs
+group of size 2 orders 3 scoops of ice cream
+group of size 3 orders 4 scoops of ice cream
+group of size 1 arrives at time 107 and is seated
+group of size 3 orders 4 scoops of ice cream
+group of size 1 departs
+group of size 2 arrives at time 110 and is seated
+group of size 1 orders 1 scoops of ice cream
+group of size 2 arrives at time 113 and is seated
+group of size 2 orders 3 scoops of ice cream
+group of size 3 arrives at time 118 and is seated
+group of size 3 arrives at time 119 and is seated
+group of size 2 orders 2 scoops of ice cream
+group of size 2 departs
+group of size 3 departs
+group of size 3 orders 5 scoops of ice cream
+group of size 3 orders 4 scoops of ice cream
+group of size 3 arrives at time 129 and is seated
+group of size 3 departs
+group of size 1 departs
+group of size 3 departs
+group of size 2 departs
+group of size 3 orders 6 scoops of ice cream
+group of size 2 departs
+group of size 3 departs
+group of size 3 departs
+group of size 3 departs
+profits for the day are 24.5
+
+execution ended normally

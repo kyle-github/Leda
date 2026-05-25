@@ -1,0 +1,42 @@
+parse ok, starting execution
+average low temperature for month 1 is -12
+average low temperature for month 2 is -20
+average low temperature for month 3 is 2
+average low temperature for month 4 is 7
+average low temperature for month 5 is 20
+average low temperature for month 6 is 22
+average low temperature for month 7 is 25
+average low temperature for month 8 is 35
+average low temperature for month 9 is 22
+average low temperature for month 10 is 12
+average low temperature for month 11 is 10
+average low temperature for month 12 is -5
+average low temperature for January is -12
+average low temperature for February is -20
+average low temperature for March is 2
+average low temperature for April is 7
+average low temperature for May is 20
+average low temperature for June is 22
+average low temperature for July is 25
+average low temperature for August is 35
+average low temperature for September is 22
+average low temperature for October is 12
+average low temperature for November is 10
+average low temperature for December is -5
+average low temperature for january is -12
+average low temperature for february is -20
+average low temperature for march is 2
+average low temperature for april is 7
+average low temperature for may is 20
+average low temperature for june is 22
+average low temperature for july is 25
+average low temperature for august is 35
+average low temperature for september is 22
+average low temperature for october is 12
+average low temperature for november is 10
+average low temperature for december is -5
+mode of list 27
+talbot is a possible suspect
+for a crime committed with a knife in exeter
+
+execution ended normally

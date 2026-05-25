@@ -1,0 +1,9 @@
+parse ok, starting execution
+4 277
+46 280
+26 80
+common temp -40
+got a solution
+ 2 4 6 1 3 5
+
+execution ended normally

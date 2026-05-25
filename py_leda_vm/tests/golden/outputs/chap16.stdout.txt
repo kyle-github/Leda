@@ -1,0 +1,30 @@
+parse ok, starting execution
+original list is 1 2 3 4 
+sum is 10
+product is 24
+copy is 1 2 3 4 
+reverse is 4 3 2 1 
+real list 1.7 2.5 3.1 4.3 
+length of real list 4
+average of real list 2.9
+test a few curries
+successor of 7 8
+negation of 3 -3
+reciprocol of 8.0 0.125
+double of 6 12
+positive test for 3 true
+negative test for 3 false
+nonzero test for 3 true
+half of 7.2 3.6
+parity of 3 1
+parity of 6 0
+parity of -1 1
+subset test 
+is 7 prime ?7
+is 9 prime ?0
+primes to 25 1 2 3 0 5 0 7 0 0 0 11 0 13 0 0 0 17 0 19 0 0 0 23 0 0 
+1 2 3 5 7 11 13 17 19 23 
+1 2 3 5 7 11 13 17 19 23 
+variance is 0.9
+
+execution ended normally

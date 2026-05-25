@@ -1,0 +1,26 @@
+parse ok, starting execution
+try search first without backtracking
+broker west husband west girlFriend west letters west 
+broker east husband east girlFriend west letters west 
+broker west husband east girlFriend west letters west 
+broker east husband east girlFriend west letters east 
+broker west husband west girlFriend west letters east 
+broker east husband west girlFriend east letters east 
+broker west husband west girlFriend east letters west 
+broker east husband east girlFriend east letters west 
+now try search with backtracking
+broker west husband west girlFriend west letters west 
+broker east husband east girlFriend west letters west 
+broker west husband east girlFriend west letters west 
+broker east husband east girlFriend west letters east 
+broker east husband east girlFriend east letters west 
+broker west husband west girlFriend west letters east 
+broker west husband west girlFriend east letters west 
+broker east husband west girlFriend east letters east 
+broker east husband west girlFriend east letters east 
+broker west husband west girlFriend east letters east 
+broker west husband west girlFriend east letters east 
+broker east husband east girlFriend east letters east 
+broker east husband east girlFriend east letters east 
+
+execution ended normally

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py-leda-vm"
+version = "0.1.0"
+description = "Greenfield Python compiler and VM scaffolding for Leda"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Leda VM Team" }]
+dependencies = []
+
+[project.scripts]
+compile = "tools.compile:main"
+run-vm = "tools.run_vm:main"
+disasm = "tools.disasm:main"
+generate-goldens = "tools.generate_goldens:main"
+diff-run = "tools.diff_run:main"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["compiler*", "image*", "vm*", "runtime*", "tools*", "tests*"]

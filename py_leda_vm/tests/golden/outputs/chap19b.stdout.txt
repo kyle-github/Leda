@@ -1,0 +1,34 @@
+parse ok, starting execution
+list all females
+leda
+leda
+leda
+leda
+alcmene
+helen
+clytemnestra
+clytemnestra
+hermione
+hermione
+megara
+megara
+iphigenia
+alice
+list all males
+zeus
+tyndareus
+agamemnon
+castor
+menelaus
+pollux
+hercules
+orestes
+neoptolemy
+bert
+ernie
+sam
+clytemnestra is a female
+clytemnestra is not a male
+clytemnestra is not a ~ female
+
+execution ended normally

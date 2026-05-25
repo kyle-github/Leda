@@ -1,0 +1,21 @@
+parse ok, starting execution
+triangle 3, 4, 5 is a pythagorian triangle
+triangle 3, 5, 7 is not a pythagorian triangle
+triangle 5, 12, 13 is a pythagorian triangle
+triangle 8, 15, 17 is a pythagorian triangle
+no pythagorian triangle with given sides
+all triangles less than 20
+triangle 3, 4, 5 is a pythagorian triangle
+triangle 4, 3, 5 is a pythagorian triangle
+triangle 5, 12, 13 is a pythagorian triangle
+triangle 6, 8, 10 is a pythagorian triangle
+triangle 8, 6, 10 is a pythagorian triangle
+triangle 8, 15, 17 is a pythagorian triangle
+triangle 9, 12, 15 is a pythagorian triangle
+triangle 12, 5, 13 is a pythagorian triangle
+triangle 12, 9, 15 is a pythagorian triangle
+triangle 12, 16, 20 is a pythagorian triangle
+triangle 15, 8, 17 is a pythagorian triangle
+triangle 16, 12, 20 is a pythagorian triangle
+
+execution ended normally

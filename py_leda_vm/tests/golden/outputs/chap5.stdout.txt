@@ -1,0 +1,33 @@
+parse ok, starting execution
+style one -- brute force
+Alphard Beta Clos Dylan Eiffel 
+
+style two -- using functions as arguments
+Alphard Beta Clos Dylan Eiffel 
+
+style three -- using relations
+Alphard Beta Clos Dylan Eiffel 
+
+style four -- using iterators
+Alphard Beta Clos Dylan Eiffel 
+
+style five -- using generator
+Alphard Beta Clos Dylan Eiffel 
+
+style one with halting
+Alphard Beta 
+
+style two -- using functions as arguments
+Alphard Beta Clos Dylan Eiffel 
+
+style three -- using relations
+Alphard Beta Clos 
+
+style four -- using iterators
+Alphard Beta 
+
+style five -- using generator
+Alphard Beta 
+
+
+execution ended normally

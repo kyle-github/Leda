@@ -1,0 +1,20 @@
+parse ok, starting execution
+original list is 1 2 3 4 
+sum is 10
+length is 4
+copy is 1 2 3 4 
+reverse is 4 3 2 1 
+b list is 5 6 7 
+append is 1 2 3 4 5 6 7 
+median of appended list4
+median2 of appended list4
+one to 7 is 1 2 3 4 5 6 7 
+is 7 prime ?7
+is 9 prime ?0
+real list 1.7 2.5 3.1 4.3 
+average is 2.9
+variance is 0.9
+primes less than 25 1 2 3 0 5 0 7 0 0 0 11 0 13 0 0 0 17 0 19 0 0 0 23 0 0 
+filter out values1 2 3 5 7 11 13 17 19 23 
+
+execution ended normally

@@ -1,0 +1,13 @@
+parse ok, starting execution
+my sister hates dancing with my father 
+you think that I am intelligent 
+my girlfriend thinks that I am creative 
+my girlfriend loves the man next door 
+you think that I am creative 
+my father hates eating 
+the man next door hates sleeping 
+my girlfriend thinks that I am creative 
+my girlfriend thinks that I am intelligent 
+I hate eating 
+
+execution ended normally

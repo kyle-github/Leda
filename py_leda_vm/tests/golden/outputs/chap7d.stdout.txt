@@ -1,0 +1,9 @@
+parse ok, starting execution
+a cat is a non-zoo animal that does not bark
+a dog is a non-zoo animal that barks
+a seal is a zoo animal that barks
+a lion is a zoo animal that does not bark
+a horse is a non-zoo animal that does not bark
+union of barking animals and zoo animals is: seal dog lion 
+
+execution ended normally

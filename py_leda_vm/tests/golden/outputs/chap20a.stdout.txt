@@ -1,0 +1,18 @@
+parse ok, starting execution
+estonia is colored red
+latvia is colored green
+lituania is colored red
+belarus is colored yellow
+russia is colored blue
+ukraine is colored red
+moldova is colored blue
+georgia is colored red
+armenia is colored blue
+azerbijan is colored green
+kazakhstan is colored red
+turkmenstan is colored blue
+uzbenkistan is colored green
+kyrgyzstan is colored blue
+tajikistan is colored red
+
+execution ended normally

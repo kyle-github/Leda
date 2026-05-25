@@ -1,0 +1,7 @@
+parse ok, starting execution
+2 2 3 4 
+2 3 4 
+unsorted list4 2 3 7 4 
+sorted list2 3 4 4 7 
+
+execution ended normally
