@@ -85,6 +85,19 @@ static int vm_resolve_capture_env_index(struct bc_vm *vm, uint64_t depth, size_t
         return 0;
     }
 
+    /* depth=1 from a function's own body means "my context".  When the current
+       frame has already promoted itself (via MAKE_CLOSURE depth=0), that promoted
+       env IS the function's own context.  Lambda thunks (0 locals, no promoted env
+       yet) fall through to the closure_env_index path so depth=1 still reaches
+       their enclosing scope via the chain-walk in vm_get_capture_local_slot_ref. */
+    if(depth == 1) {
+        struct bc_frame *cur = vm_current_frame(vm);
+        if(cur->promoted_env_index != SIZE_MAX) {
+            *env_index = cur->promoted_env_index;
+            return 1;
+        }
+    }
+
     resolved_env_index = vm_current_frame(vm)->closure_env_index;
     if(resolved_env_index == SIZE_MAX) {
         vm_set_error(error_buffer, error_buffer_size, "no captured environment available");
@@ -109,6 +122,18 @@ static int vm_resolve_capture_env_index(struct bc_vm *vm, uint64_t depth, size_t
         }
         resolved_env_index = environment->parent_env_index;
         depth--;
+
+        /* Object/method environments are not lexical scopes: the compiler's depth
+           count skips them.  After each depth step, walk past any object env so
+           that depth=N from a lambda inside a method reaches the same scope as
+           depth=N from within the method body itself.
+           This only runs inside the depth>1 loop so that depth=1 fallthrough
+           (method body with no promoted env) still correctly returns the object env. */
+        while(resolved_env_index < vm->environment_count
+              && vm->environments[resolved_env_index].object != NULL
+              && vm->environments[resolved_env_index].parent_env_index != SIZE_MAX) {
+            resolved_env_index = vm->environments[resolved_env_index].parent_env_index;
+        }
     }
 
     *env_index = resolved_env_index;
@@ -459,7 +484,10 @@ static int vm_get_object_slot_ref(struct bc_constant *object, uint64_t slot_inde
         return 0;
     }
     if(slot_index >= object->value.object.slot_count) {
-        vm_set_error(error_buffer, error_buffer_size, "object slot index out of range");
+        char msg[128];
+        snprintf(msg, sizeof(msg), "object slot index out of range: slot=%" PRIu64 " count=%" PRIu64,
+                 slot_index, (uint64_t)object->value.object.slot_count);
+        vm_set_error(error_buffer, error_buffer_size, msg);
         return 0;
     }
 
@@ -1339,6 +1367,63 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                 break;
             }
 
+            case BC_OP_MAKE_CLOSURE_WITH_ENV: {
+                uint64_t function_index;
+                size_t method_env_index;
+                struct bc_constant *receiver;
+                struct bc_constant *closure;
+                struct bc_constant *class_table;
+                size_t builtin_idx;
+
+                if(!vm_read_u64le(vm, &function_index)) {
+                    vm_set_error(error_buffer, error_buffer_size, "malformed MAKE_CLOSURE_WITH_ENV operand");
+                    return 0;
+                }
+                if(function_index >= vm->module->function_count) {
+                    vm_set_error(error_buffer, error_buffer_size, "invalid function index in MAKE_CLOSURE_WITH_ENV");
+                    return 0;
+                }
+                if(vm->stack_size == 0) {
+                    vm_set_error(error_buffer, error_buffer_size, "operand stack underflow in MAKE_CLOSURE_WITH_ENV");
+                    return 0;
+                }
+                receiver = vm->stack[vm->stack_size - 1];
+
+                if(receiver != NULL && receiver->kind == BC_CONST_OBJECT) {
+                    if(!vm_bind_object_environment(vm, receiver, &method_env_index, error_buffer, error_buffer_size)) {
+                        return 0;
+                    }
+                } else {
+                    switch(receiver != NULL ? (int)receiver->kind : -1) {
+                        case BC_CONST_INTEGER: builtin_idx = BC_BUILTIN_INTEGER; break;
+                        case BC_CONST_STRING:  builtin_idx = BC_BUILTIN_STRING;  break;
+                        case BC_CONST_BOOLEAN:
+                            builtin_idx = receiver->value.integer ? BC_BUILTIN_TRUE : BC_BUILTIN_FALSE;
+                            break;
+                        case BC_CONST_REAL:    builtin_idx = BC_BUILTIN_REAL;    break;
+                        default:
+                            vm_set_error(error_buffer, error_buffer_size,
+                                         "MAKE_CLOSURE_WITH_ENV requires an object or primitive receiver");
+                            return 0;
+                    }
+                    class_table = vm->builtin_class_tables[builtin_idx];
+                    if(class_table == NULL) {
+                        vm_set_error(error_buffer, error_buffer_size,
+                                     "builtin class table not yet registered for MAKE_CLOSURE_WITH_ENV");
+                        return 0;
+                    }
+                    if(!vm_bind_primitive_environment(vm, receiver, class_table, &method_env_index, error_buffer,
+                                                      error_buffer_size)) {
+                        return 0;
+                    }
+                }
+                closure = vm_alloc_runtime_function(vm, function_index, (uint64_t)method_env_index, error_buffer,
+                                                    error_buffer_size);
+                if(closure == NULL) { return 0; }
+                vm->stack[vm->stack_size - 1] = closure;
+                break;
+            }
+
             case BC_OP_MAKE_REF_LOCAL: {
                 uint64_t local_index;
                 struct bc_constant **slot_ref;
@@ -1472,7 +1557,21 @@ int bc_vm_run(struct bc_vm *vm, char *error_buffer, size_t error_buffer_size) {
                 table_index = vm->stack_size - (size_t)arg_count - 1;
                 instance = vm_alloc_runtime_object(vm, slot_count, error_buffer, error_buffer_size);
                 if(instance == NULL) { return 0; }
-                if(!vm_resolve_closure_env_index(vm, 0, &current_env_index, error_buffer, error_buffer_size)) { return 0; }
+                /* Inherit the class table's construction context so depth>1 captures in
+                   methods of instances created inside other methods resolve correctly. */
+                {
+                    struct bc_constant *class_table_val = vm->stack[table_index];
+                    if(class_table_val != NULL && class_table_val->kind == BC_CONST_OBJECT
+                       && class_table_val->value.object.slot_count > 1
+                       && class_table_val->value.object.slots[1] != NULL
+                       && class_table_val->value.object.slots[1]->kind == BC_CONST_ENVREF) {
+                        current_env_index = (size_t)class_table_val->value.object.slots[1]->value.env_index;
+                    } else {
+                        if(!vm_resolve_closure_env_index(vm, 0, &current_env_index, error_buffer, error_buffer_size)) {
+                            return 0;
+                        }
+                    }
+                }
                 context_ref = vm_alloc_runtime_envref(vm, (uint64_t)current_env_index, error_buffer, error_buffer_size);
                 if(context_ref == NULL) { return 0; }
 

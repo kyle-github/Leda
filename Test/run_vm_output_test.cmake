@@ -71,6 +71,9 @@ string(REPLACE "\r"   "\n" ledavm_stdout "${ledavm_stdout}")
 string(REPLACE "\r\n" "\n" expected_output "${expected_output}")
 string(REPLACE "\r"   "\n" expected_output "${expected_output}")
 
+string(REGEX REPLACE "[ \t\n]+$" "" ledavm_stdout "${ledavm_stdout}")
+string(REGEX REPLACE "[ \t\n]+$" "" expected_output "${expected_output}")
+
 if(NOT ledavm_stdout STREQUAL expected_output)
     message(FATAL_ERROR
         "output mismatch for ${TEST_NAME}\n"

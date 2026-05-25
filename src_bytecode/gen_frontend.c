@@ -465,6 +465,7 @@ static struct expressionRecord *makeMethodIntoFunction(struct typeRecord *ct, ch
             struct expressionRecord *e = newExpression(makeClosure);
             e->u.l.context = f;
             e->u.l.code = s->u.f.code;
+            e->resultType = s->u.f.typ;
             f = newExpression(doFunctionCall);
             f->u.f.fun = e;
             f->u.f.symbol = s->name;

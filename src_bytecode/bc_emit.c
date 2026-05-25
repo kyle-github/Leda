@@ -225,6 +225,10 @@ static int bc_match_function_local_slot_with_depth(struct expressionRecord *expr
     if(expression == NULL || expression->operator!= getOffset || expression->u.o.location<0) { return 0; }
     base = expression->u.o.base;
     if(base == NULL || base->operator!= getOffset || base->u.o.location != 3) { return 0; }
+    /* The inner getOffset must be the anonymous function-locals block (symbol==NULL).
+       If it has a symbol name it is a named object field (e.g. orderedList.next), not
+       the locals array, and must not be treated as a function-local access. */
+    if(base->u.o.symbol != NULL) { return 0; }
     if(!bc_resolve_context_depth(base->u.o.base, depth)) { return 0; }
 
     *slot = (uint64_t)expression->u.o.location;
@@ -235,6 +239,7 @@ static int bc_match_function_local_slot_with_depth_core(struct expressionRecord 
                                                         uint64_t *slot) {
     if(base == NULL || location < 0) { return 0; }
     if(base->operator!= getOffset || base->u.o.location != 3) { return 0; }
+    if(base->u.o.symbol != NULL) { return 0; }
     if(!bc_resolve_context_depth(base->u.o.base, depth)) { return 0; }
 
     *slot = (uint64_t)location;
@@ -770,9 +775,27 @@ static int bc_emit_closure_literal(struct bc_compile_context *context, struct ex
                                    struct bc_function *function, char *error_buffer, size_t error_buffer_size) {
     size_t function_index;
     uint64_t context_depth;
+    struct expressionRecord *ctx;
 
     if(!bc_ensure_function_compiled(context, closure_expression, &function_index, error_buffer, error_buffer_size)) { return 0; }
-    if(!bc_resolve_context_depth(closure_expression->u.l.context, &context_depth)) {
+
+    /* Handle makeMethodIntoFunction inner closure: context = getOffset(getCurrentContext, i) where i >= 4
+       means "capture arg (i-4) of the current frame as the closure's receiver/env". */
+    ctx = closure_expression->u.l.context;
+    if(ctx != NULL && ctx->operator == getOffset && ctx->u.o.location >= 4
+       && ctx->u.o.base != NULL && ctx->u.o.base->operator == getCurrentContext) {
+        uint64_t arg_slot = (uint64_t)(ctx->u.o.location - 4);
+        if(!bc_emit_slot_load(function, BC_OP_LOAD_ARG, arg_slot, error_buffer, error_buffer_size,
+                              "unable to emit receiver load for closure-with-env")) { return 0; }
+        if(!bc_emit_opcode(function, BC_OP_MAKE_CLOSURE_WITH_ENV) || !bc_emit_u64le(function, (uint64_t)function_index)) {
+            bc_set_error(error_buffer, error_buffer_size, "unable to emit closure-with-env");
+            return 0;
+        }
+        if(function->max_stack < 1u) { function->max_stack = 1u; }
+        return 1;
+    }
+
+    if(!bc_resolve_context_depth(ctx, &context_depth)) {
         bc_set_error(error_buffer, error_buffer_size, "unsupported closure context shape in current bytecode slice");
         return 0;
     }
@@ -795,8 +818,7 @@ static int bc_match_direct_closure_literal_target(struct bc_compile_context *con
 
     if(!bc_ensure_function_compiled(context, callee_expression, function_index, error_buffer, error_buffer_size)) { return -1; }
     if(!bc_resolve_context_depth(callee_expression->u.l.context, context_depth)) {
-        bc_set_error(error_buffer, error_buffer_size, "unsupported direct-call closure context shape");
-        return -1;
+        return 0;
     }
 
     return 1;

@@ -40,6 +40,7 @@ enum bc_opcode {
     BC_OP_MAKE_METHOD = 28,
     BC_OP_BR_IF_NOT_KIND = 29,
     BC_OP_REGISTER_BUILTIN = 30,
+    BC_OP_MAKE_CLOSURE_WITH_ENV = 31,
 };
 
 enum bc_constant_kind {
