@@ -1,0 +1,59 @@
+This architectural plan for the Leda Virtual Machine and Compiler incorporates the Workspace Register Machine model with a fixed 32-bit instruction width, per-function constant pools, and an aggressive Tail Call Optimization (TCO) strategy for the sliding window stack.
+
+Phase 1: The Python Prototype
+An initial "executable specification" used to freeze the bytecode format.
+
+Goal: Validate the logic programming patterns (continuations) and the TCO implementation.
+Implementation: A single while loop managing a WorkspacePointer and a ProgramCounter.
+Advantage: Simplifies debugging of closure capture (Upvalues) and TCO before moving to the stricter memory model of C++.
+Phase 2: The Systems Implementation (C++)
+The production VM is implemented in C++ using a "Better C" approach, utilizing the STL for the compiler and manual memory management for the VM.
+
+1. Architecture: The "Workspace" Register Machine
+We utilize 256 "registers" that are direct mappings to the current stack frame (activation record).
+
+Fixed 32-Bit Instructions: To ensure fast fetching and decoding, all instructions are 4 bytes.
+Format: [ Opcode (8-bit) | R_Dest (8-bit) | R_Src1 (8-bit) | R_Src2/Index (8-bit) ]
+The 8-bit limit for operand indices is handled by ensuring each function has its own localized constant pool.
+Per-Function Constant Pool:
+The compiler generates a constant pool for every function containing class definitions, large constants, and literal strings.
+R3 is reserved for the current function's CONST_POOL pointer. This allows LOAD_CONST to be a single-cycle operation: Reg[Dest] = R3[Index].
+Sliding Window Calls:
+Arguments are placed at the end of the current register window.
+Upon CALL, the Workspace Pointer (WP) "slides" up to point to the first argument. Argument passing is zero-copy.
+Fixed ABI:
+R0: PREV_WP – Caller's workspace pointer for return.
+R1: RET_PC – Return address.
+R2: CLOSURE – The current Closure object (for Upvalue access).
+R3: CONST_POOL – Pointer to the function's constant pool metadata.
+R4: RESULT – Return value slot.
+R5–R255: Arguments, followed by locals and temporaries.
+2. Tail Call Optimization (TCO)
+In Leda, TCO is essential because relations are chains of continuations.
+
+Mechanism: When the compiler identifies a tail call, it does not slide the WP further up the stack.
+Overwriting Arguments: The compiler emits instructions to evaluate the new arguments into temporary registers and then move them into R5, R6, etc. (the current function's argument slots).
+Resetting Locals: Since locals and temporaries start at R5 + arity, they are naturally "reset" because the new function bytecode will simply overwrite whatever was in those slots during its execution.
+Execution:
+Overwrite R5... with new arguments.
+Update R3 if the tail-called function uses a different constant pool.
+Update R2 if it is a closure.
+Set the ProgramCounter to the start of the target function's bytecode.
+3. Memory Management & GC
+We implement a Two-Space Copying Garbage Collector using an Object Table.
+
+NaN Boxing: Encapsulated in a C++ class Value. Operator overloading allows code like Reg[10] = Reg[11] + Reg[12] while the class handles bit-masking and double-indirection via the Object Table.
+Indirection for Safety: Registers store an Index into the Object Table. When the GC moves an object in the heap, it only updates one pointer in the table. Register indices remain unchanged.
+POD Objects: All objects in the GC heap are Plain Old Data structs (no virtual functions). This allows the GC to use memcpy for moves and avoids vtable pointer corruption.
+4. Closures and Upvalues
+Lua-style Upvalues: Captures point to registers in parent windows while "Open."
+Closing: When a function returns, the VM moves captured registers into heap-allocated Upvalue objects.
+Static Optimization: Top-level, non-nested functions are called via INVOKE_STATIC, bypassing Closure allocation.
+Implementation Effort Summary
+Component	C++ Effort	Key Technique
+Compiler	~2,500 LoC	STL for AST/SymTable; Linear Register Allocation
+VM Loop	~900 LoC	Fixed 32-bit Decode; WP-Relative Addressing
+GC / Heap	~800 LoC	Object Table Handles; Two-Space Copying
+Questions and Options
+Constant Pool Overflow: If a function is so complex it requires more than 256 constants, should the compiler automatically split the function, or is it acceptable for the first version to simply error out?
+Instruction Set Orthogonality: For instructions like ADD, would you prefer them to only work on registers, or should we reserve a bit in the opcode to allow one operand to be a direct constant pool index? (e.g., ADD R10, R11, C5).
